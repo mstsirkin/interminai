@@ -27,7 +27,7 @@ Many powerful CLI tools require human interaction - vim waits for keystrokes, `g
 - **Input control**: Send keystrokes, commands, and control sequences
 - **Process management**: Start, monitor, signal, and stop wrapped processes
 - **Daemon mode**: Run in background for long-lived interactive sessions
-- **Terminal emulation**: Full PTY with proper ANSI escape sequence handling
+- **Terminal emulation**: Basic PTY with ANSI escape sequence handling
 
 ### Use Cases
 
