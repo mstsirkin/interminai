@@ -65,6 +65,9 @@ cd rust
 cargo build --release
 
 # Binary will be at: target/release/interminai
+
+# Check available commands
+./target/release/interminai --help
 ```
 
 **Install as Agent Skill:**
@@ -98,14 +101,9 @@ make install-skill-python
 
 The Python implementation (`interminai.py`) is ready to use without compilation.
 
-### Verify Installation
-
 ```bash
-# Check version and commands
-./target/release/interminai --help
-
-# Run tests
-cargo test
+# Check available commands
+./interminai.py --help
 ```
 
 ## Quick Start
@@ -130,6 +128,13 @@ interminai stop --socket /tmp/vim.sock
 - **examples.md** - Detailed usage examples (vim, git, debugging)
 - **reference.md** - Complete command reference
 - **PROTOCOL.md** - Socket communication protocol specification
+
+## Verification
+
+```bash
+# Run tests
+make test
+```
 
 ## Commands
 
@@ -162,4 +167,4 @@ This project is licensed under the GNU General Public License v2.0 - see the [LI
 
 ## Author
 
-Michael S. Tsirkin <mst@redhat.com>
+Michael S. Tsirkin <mst@kernel.org>
