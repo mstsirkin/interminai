@@ -23,6 +23,49 @@ from pathlib import Path
 import tempfile
 import threading
 
+class DebugBuffer:
+    """Ring buffer for unhandled escape sequences"""
+
+    def __init__(self, capacity=10):
+        self.capacity = capacity
+        self.entries = []
+        self.dropped = 0
+
+    def record(self, sequence_bytes):
+        """Record an unhandled escape sequence"""
+        # Create human-readable sequence (e.g., \e[?25l)
+        sequence = ''
+        for b in sequence_bytes:
+            if b == 0x1b:
+                sequence += '\\e'
+            elif 0x20 <= b < 0x7f:
+                sequence += chr(b)
+            else:
+                sequence += f'\\x{b:02x}'
+
+        # Create raw hex representation
+        raw_hex = ' '.join(f'{b:02x}' for b in sequence_bytes)
+
+        entry = {'sequence': sequence, 'raw_hex': raw_hex}
+
+        if len(self.entries) >= self.capacity:
+            self.entries.pop(0)
+            self.dropped += 1
+
+        self.entries.append(entry)
+
+    def get_and_clear(self, clear):
+        """Get entries and optionally clear the buffer"""
+        result = {
+            'unhandled': list(self.entries),
+            'dropped': self.dropped
+        }
+        if clear:
+            self.entries = []
+            self.dropped = 0
+        return result
+
+
 class Screen:
     """Simple terminal emulator screen buffer"""
 
@@ -33,6 +76,7 @@ class Screen:
         self.cursor_row = 0
         self.cursor_col = 0
         self.last_char = ' '
+        self.debug_buffer = DebugBuffer()
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -70,8 +114,8 @@ class Screen:
             if self.cursor_col > 0:
                 self.cursor_col -= 1
 
-    def handle_csi(self, params, action):
-        """Handle CSI escape sequences"""
+    def handle_csi(self, params, action, intermediates=None, raw_bytes=None):
+        """Handle CSI escape sequences. Returns True if handled, False otherwise."""
         if action in ('H', 'f'):  # Cursor position
             row = (params[0] if len(params) > 0 else 1) - 1
             col = (params[1] if len(params) > 1 else 1) - 1
@@ -171,6 +215,12 @@ class Screen:
             c = self.last_char
             for _ in range(n):
                 self.print_char(c)
+        elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
+            pass
+        else:
+            # Unhandled CSI sequence - record it
+            if raw_bytes:
+                self.debug_buffer.record(raw_bytes)
 
     def process_output(self, data):
         """Process output data with basic escape sequence parsing"""
@@ -181,10 +231,12 @@ class Screen:
             # Handle escape sequences
             if byte == 0x1b and i + 1 < len(data):
                 if data[i + 1] == ord('['):  # CSI
-                    # Parse CSI sequence
+                    # Parse CSI sequence and track raw bytes
+                    csi_start = i
                     i += 2
                     params = []
                     current_param = ''
+                    intermediates = []
 
                     while i < len(data):
                         c = chr(data[i])
@@ -195,11 +247,17 @@ class Screen:
                             params.append(int(current_param) if current_param else 0)
                             current_param = ''
                             i += 1
+                        elif c == '?':
+                            # Private mode indicator - track as intermediate
+                            intermediates.append(data[i])
+                            i += 1
                         elif c.isalpha() or c in '@`':
                             # CSI final bytes are 0x40-0x7E (including @ and letters)
                             if current_param:
                                 params.append(int(current_param))
-                            self.handle_csi(params, c)
+                            # Capture raw bytes for debug logging
+                            raw_bytes = bytes(data[csi_start:i+1])
+                            self.handle_csi(params, c, intermediates, raw_bytes)
                             i += 1
                             break
                         else:
@@ -207,7 +265,11 @@ class Screen:
                             break
                     continue
                 else:
-                    # Skip other escape sequences
+                    # Other escape sequences - record as unhandled
+                    # Capture at least ESC + next byte
+                    end = min(i + 2, len(data))
+                    raw_bytes = bytes(data[i:end])
+                    self.debug_buffer.record(raw_bytes)
                     i += 2
                     continue
 
@@ -503,6 +565,8 @@ def handle_client(client_sock, state):
             response = handle_kill(request.get('data'), state)
         elif req_type == 'RESIZE':
             response = handle_resize(request.get('data'), state)
+        elif req_type == 'DEBUG':
+            response = handle_debug(request.get('data'), state)
         else:
             response = {'status': 'error', 'error': f'Unknown command: {req_type}'}
 
@@ -651,6 +715,16 @@ def handle_resize(data, state):
         return {'status': 'ok', 'data': {'message': f'Resized to {cols}x{rows}'}}
     except Exception as e:
         return {'status': 'error', 'error': str(e)}
+
+
+def handle_debug(data, state):
+    """Handle DEBUG request"""
+    clear = False
+    if data and data.get('clear'):
+        clear = True
+
+    result = state.screen.debug_buffer.get_and_clear(clear)
+    return {'status': 'ok', 'data': result}
 
 
 def send_request(socket_path, request):
@@ -895,6 +969,30 @@ def cmd_resize(args):
         sys.exit(1)
 
 
+def cmd_debug(args):
+    """Debug command - show unhandled escape sequences"""
+    request = {'type': 'DEBUG', 'data': {'clear': args.clear}}
+    response = send_request(args.socket, request)
+
+    if response['status'] == 'error':
+        print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
+        sys.exit(1)
+
+    data = response['data']
+    unhandled = data.get('unhandled', [])
+    dropped = data.get('dropped', 0)
+
+    if not unhandled:
+        print("No unhandled escape sequences")
+    else:
+        print(f"Unhandled escape sequences ({len(unhandled)} entries):")
+        for entry in unhandled:
+            print(f"  {entry['sequence']} ({entry['raw_hex']})")
+
+    if dropped > 0:
+        print(f"Dropped: {dropped}")
+
+
 def main():
     # Ensure stdout is unbuffered for immediate output
     sys.stdout.reconfigure(line_buffering=True)
@@ -949,6 +1047,12 @@ def main():
     resize_parser.add_argument('--socket', required=True, help='Socket path')
     resize_parser.add_argument('--size', required=True, help='New size (COLSxROWS)')
     resize_parser.set_defaults(func=cmd_resize)
+
+    # Debug command
+    debug_parser = subparsers.add_parser('debug', help='Show unhandled escape sequences')
+    debug_parser.add_argument('--socket', required=True, help='Socket path')
+    debug_parser.add_argument('--clear', action='store_true', help='Clear buffer after reading')
+    debug_parser.set_defaults(func=cmd_debug)
 
     args = parser.parse_args()
 

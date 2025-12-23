@@ -123,6 +123,17 @@ enum Commands {
         #[arg(long)]
         size: String,
     },
+
+    /// Show unhandled escape sequences (for debugging)
+    Debug {
+        /// Unix socket path (required)
+        #[arg(long, required = true)]
+        socket: String,
+
+        /// Clear the buffer after reading
+        #[arg(long)]
+        clear: bool,
+    },
 }
 
 // Protocol messages
@@ -162,6 +173,54 @@ impl Response {
 }
 
 // Simple terminal emulator
+/// Entry in the unhandled escape sequence debug buffer
+#[derive(Clone, serde::Serialize)]
+struct UnhandledSequence {
+    sequence: String,
+    raw_hex: String,
+}
+
+/// Ring buffer for tracking unhandled escape sequences
+struct DebugBuffer {
+    entries: Vec<UnhandledSequence>,
+    capacity: usize,
+    dropped: usize,
+}
+
+impl DebugBuffer {
+    fn new(capacity: usize) -> Self {
+        DebugBuffer {
+            entries: Vec::with_capacity(capacity),
+            capacity,
+            dropped: 0,
+        }
+    }
+
+    fn push(&mut self, sequence: String, raw_bytes: &[u8]) {
+        let raw_hex = raw_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        let entry = UnhandledSequence { sequence, raw_hex };
+
+        if self.entries.len() >= self.capacity {
+            self.entries.remove(0);
+            self.dropped += 1;
+        }
+        self.entries.push(entry);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.dropped = 0;
+    }
+
+    fn get_entries(&self) -> &[UnhandledSequence] {
+        &self.entries
+    }
+
+    fn get_dropped(&self) -> usize {
+        self.dropped
+    }
+}
+
 struct Screen {
     rows: usize,
     cols: usize,
@@ -169,10 +228,15 @@ struct Screen {
     cursor_row: usize,
     cursor_col: usize,
     last_char: char,
+    debug_buffer: DebugBuffer,
 }
 
 impl Screen {
     fn new(rows: usize, cols: usize) -> Self {
+        Self::with_debug_buffer(rows, cols, 10)
+    }
+
+    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
         Screen {
             rows,
             cols,
@@ -180,6 +244,7 @@ impl Screen {
             cursor_row: 0,
             cursor_col: 0,
             last_char: ' ',
+            debug_buffer: DebugBuffer::new(debug_buffer_size),
         }
     }
 
@@ -249,7 +314,7 @@ impl Perform for Screen {
     fn put(&mut self, _: u8) {}
     fn unhook(&mut self) {}
     fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
-    fn csi_dispatch(&mut self, params: &vte::Params, _intermediates: &[u8], _ignore: bool, action: char) {
+    fn csi_dispatch(&mut self, params: &vte::Params, intermediates: &[u8], _ignore: bool, action: char) {
         match action {
             'H' | 'f' => {
                 // Cursor position
@@ -431,18 +496,56 @@ impl Perform for Screen {
                 // We use fixed 8-column tabs, so ignore
             }
             'm' => {
-                // SGR - ignore (colors/attributes)
+                // SGR - ignore (colors/attributes) - intentionally not logged to debug buffer
             }
-            _ => {}
+            _ => {
+                // Record unhandled CSI sequence
+                let mut seq = String::from("\\e[");
+                for intermediate in intermediates {
+                    seq.push(*intermediate as char);
+                }
+                let param_strs: Vec<String> = params.iter()
+                    .map(|p| p.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(":"))
+                    .collect();
+                seq.push_str(&param_strs.join(";"));
+                seq.push(action);
+
+                // Reconstruct raw bytes
+                let mut raw = vec![0x1b, b'['];
+                raw.extend_from_slice(intermediates);
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 { raw.push(b';'); }
+                    for (j, v) in p.iter().enumerate() {
+                        if j > 0 { raw.push(b':'); }
+                        raw.extend_from_slice(v.to_string().as_bytes());
+                    }
+                }
+                raw.push(action as u8);
+
+                self.debug_buffer.push(seq, &raw);
+            }
         }
     }
 
-    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
+    fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
         match byte {
             b'H' => {
                 // Set Tab Stop (hts) - we use fixed 8-column tabs, ignore
             }
-            _ => {}
+            _ => {
+                // Record unhandled ESC sequence
+                let mut seq = String::from("\\e");
+                for intermediate in intermediates {
+                    seq.push(*intermediate as char);
+                }
+                seq.push(byte as char);
+
+                let mut raw = vec![0x1b];
+                raw.extend_from_slice(intermediates);
+                raw.push(byte);
+
+                self.debug_buffer.push(seq, &raw);
+            }
         }
     }
 }
@@ -864,6 +967,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
         "KILL" => handle_kill(request.data, &state),
         "STOP" => handle_stop(&state),
         "RESIZE" => handle_resize(request.data, &state),
+        "DEBUG" => handle_debug(request.data, &state),
         _ => Response::error(format!("Unknown command: {}", request.req_type)),
     };
 
@@ -1058,20 +1162,38 @@ fn handle_resize(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     }))
 }
 
+fn handle_debug(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
+    let clear = data.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let mut state = state.lock().unwrap();
+
+    let entries: Vec<_> = state.screen.debug_buffer.get_entries().to_vec();
+    let dropped = state.screen.debug_buffer.get_dropped();
+
+    if clear {
+        state.screen.debug_buffer.clear();
+    }
+
+    Response::ok(serde_json::json!({
+        "unhandled": entries,
+        "dropped": dropped
+    }))
+}
+
 fn apply_cursor_inverse(screen: &str, cursor_row: usize, cursor_col: usize) -> String {
     let lines: Vec<&str> = screen.lines().collect();
-    
+
     // Check if cursor_row is valid
     if cursor_row >= lines.len() {
         return screen.to_string();
     }
-    
+
     let mut result = String::new();
-    
+
     for (row_idx, line) in lines.iter().enumerate() {
         if row_idx == cursor_row {
             let chars: Vec<char> = line.chars().collect();
-            
+
             // Check if cursor_col is valid
             if cursor_col >= chars.len() {
                 result.push_str(line);
@@ -1090,12 +1212,12 @@ fn apply_cursor_inverse(screen: &str, cursor_row: usize, cursor_col: usize) -> S
         } else {
             result.push_str(line);
         }
-        
+
         if row_idx < lines.len() - 1 {
             result.push('\n');
         }
     }
-    
+
     result
 }
 
@@ -1124,7 +1246,7 @@ mod tests {
     fn test_apply_cursor_inverse_basic() {
         let screen = "Hello World\nSecond Line";
         let result = apply_cursor_inverse(screen, 0, 6);
-        
+
         // Should have inverse codes around character at position 6 (the 'W')
         assert!(result.contains("\x1b[7mW\x1b[27m"), "Should wrap 'W' with inverse codes");
         assert!(result.contains("Hello"));
@@ -1136,7 +1258,7 @@ mod tests {
     fn test_apply_cursor_inverse_first_char() {
         let screen = "Test";
         let result = apply_cursor_inverse(screen, 0, 0);
-        
+
         // Should start with inverse code
         assert!(result.starts_with("\x1b[7m"));
         assert!(result.contains("\x1b[27m"));
@@ -1146,12 +1268,12 @@ mod tests {
     fn test_apply_cursor_inverse_multiline() {
         let screen = "Line 1\nLine 2\nLine 3";
         let result = apply_cursor_inverse(screen, 1, 5);
-        
+
         // Should have all lines
         assert!(result.contains("Line 1"));
         assert!(result.contains("Line ")); // Before wrapped character
         assert!(result.contains("Line 3"));
-        
+
         // Should have inverse codes wrapping character at position 5 of line 1 (the '2')
         assert!(result.contains("\x1b[7m2\x1b[27m"));
     }
@@ -1160,7 +1282,7 @@ mod tests {
     fn test_apply_cursor_inverse_invalid_row() {
         let screen = "Only one line";
         let result = apply_cursor_inverse(screen, 5, 0);
-        
+
         // Should return original screen unchanged
         assert_eq!(result, screen);
     }
@@ -1169,7 +1291,7 @@ mod tests {
     fn test_apply_cursor_inverse_invalid_col() {
         let screen = "Short";
         let result = apply_cursor_inverse(screen, 0, 100);
-        
+
         // Should return original line (no inverse codes)
         assert!(!result.contains("\x1b[7m"));
         assert!(result.contains("Short"));
@@ -1179,7 +1301,7 @@ mod tests {
     fn test_apply_cursor_inverse_empty_screen() {
         let screen = "";
         let result = apply_cursor_inverse(screen, 0, 0);
-        
+
         // Should handle gracefully
         assert_eq!(result, screen);
     }
@@ -1188,12 +1310,12 @@ mod tests {
     fn test_apply_cursor_inverse_preserves_all_chars() {
         let screen = "ABCDEFGHIJKLMNOP";
         let result = apply_cursor_inverse(screen, 0, 7);
-        
+
         // Strip ANSI codes
         let stripped = result
             .replace("\x1b[7m", "")
             .replace("\x1b[27m", "");
-        
+
         // All characters should be preserved
         assert_eq!(stripped, screen);
     }
@@ -1202,7 +1324,7 @@ mod tests {
     fn test_apply_cursor_inverse_last_char() {
         let screen = "Test";
         let result = apply_cursor_inverse(screen, 0, 3);
-        
+
         // Should end with inverse codes and then the 't'
         assert!(result.contains("\x1b[7mt\x1b[27m"));
     }
@@ -1211,7 +1333,7 @@ mod tests {
     fn test_apply_cursor_inverse_special_chars() {
         let screen = "Hello\tWorld\nNext";
         let result = apply_cursor_inverse(screen, 0, 5);
-        
+
         // Should handle tab character
         assert!(result.contains("\x1b[7m\t\x1b[27m"));
         assert!(result.contains("Hello"));
@@ -1263,7 +1385,7 @@ fn main() -> Result<()> {
 
             if let Some(data) = response.data {
                 let cursor_mode = cursor.as_str();
-                
+
                 // Print cursor info if requested (convert to 1-based for display)
                 if cursor_mode == "print" || cursor_mode == "both" {
                     if let (Some(cursor_row), Some(cursor_col)) = (
@@ -1380,6 +1502,42 @@ fn main() -> Result<()> {
             }
 
             println!("Terminal resized to {}x{}", cols, rows);
+        }
+
+        Commands::Debug { socket, clear } => {
+            let request = serde_json::json!({
+                "type": "DEBUG",
+                "clear": clear
+            });
+
+            let response = send_request(&socket, request)?;
+
+            if response.status == "error" {
+                eprintln!("Error: {}", response.error.unwrap_or_default());
+                std::process::exit(1);
+            }
+
+            if let Some(data) = response.data {
+                let unhandled = data.get("unhandled").and_then(|v| v.as_array());
+                let dropped = data.get("dropped").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                if let Some(entries) = unhandled {
+                    if entries.is_empty() {
+                        println!("No unhandled escape sequences");
+                    } else {
+                        println!("Unhandled escape sequences:");
+                        for entry in entries {
+                            let seq = entry.get("sequence").and_then(|v| v.as_str()).unwrap_or("?");
+                            let hex = entry.get("raw_hex").and_then(|v| v.as_str()).unwrap_or("?");
+                            println!("  {} ({})", seq, hex);
+                        }
+                    }
+                }
+
+                if dropped > 0 {
+                    println!("Dropped: {} (buffer overflow)", dropped);
+                }
+            }
         }
     }
 

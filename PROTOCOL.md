@@ -227,6 +227,54 @@ All responses are JSON objects:
 
 ---
 
+### DEBUG - Get unhandled escape sequences
+
+Returns a ring buffer of unhandled escape sequences (sequences the terminal
+emulator received but does not implement). Useful for debugging rendering
+issues and identifying which sequences an application uses.
+
+**Request:**
+```json
+{
+  "type": "DEBUG",
+  "data": {
+    "clear": false
+  }
+}
+```
+
+The `data` field is optional. If omitted or `clear` is false, the buffer is
+returned without modification. If `clear` is true, the buffer is atomically
+returned and then cleared.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "data": {
+    "unhandled": [
+      {"sequence": "\\e[?25l", "raw_hex": "1b5b3f32356c"},
+      {"sequence": "\\e7", "raw_hex": "1b37"},
+      {"sequence": "\\e[?1049h", "raw_hex": "1b5b3f3130343968"}
+    ],
+    "dropped": 5
+  }
+}
+```
+
+**Fields:**
+- `unhandled`: Array of unhandled sequences in FIFO order (oldest first)
+  - `sequence`: Human-readable escape sequence (e.g., `\e[?25l`)
+  - `raw_hex`: Raw bytes in hexadecimal
+- `dropped`: Number of sequences that were dropped from the buffer due to overflow
+
+**Notes:**
+- Buffer size is configurable via `--debug-buffer` flag to `start` (default: 10)
+- Intentionally ignored sequences (like SGR/colors) are not recorded
+- Buffer starts empty; sequences are added when encountered during output processing
+
+---
+
 ## Error Handling
 
 ### Malformed Requests
