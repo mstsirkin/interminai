@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-claude test test-python demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-claude build test test-python demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
@@ -13,15 +13,18 @@ help: ## Show this help message
 	@echo "  make test-python          - Run tests with Python implementation"
 	@echo "  make demo                 - Generate demo.gif showing Claude using interminai"
 	@echo "  make demo-gdb             - Generate demo-gdb.gif showing Claude debugging with gdb"
+	@echo "  make build                - Generate a release binary (don't install)
 	@echo "  make clean                - Remove build artifacts and installed binaries"
 	@echo "  make help                 - Show this help message"
 	@echo ""
 
-install-skill: install-skill-rust ## Install Rust implementation (default)
-
-install-skill-rust:
+build:
 	@echo "Building Rust release binary..."
 	@cargo build --release
+
+install-skill: install-skill-rust ## Install Rust implementation (default)
+
+install-skill-rust: build
 	@echo "Installing to skills/interminai/scripts/"
 	@mkdir -p skills/interminai/scripts
 	@cp target/release/interminai skills/interminai/scripts/interminai
