@@ -468,6 +468,36 @@ impl Perform for Screen {
                     }
                 }
             }
+            'm' => {
+                // SGR (Select Graphic Rendition) - color and style codes
+                if self.color_enabled {
+                    // Reconstruct the escape sequence and print it
+                    let mut sgr = String::from("\x1b[");
+                    
+                    if params.is_empty() {
+                        sgr.push('0');
+                    } else {
+                        let param_strs: Vec<String> = params
+                            .iter()
+                            .map(|subparams| {
+                                subparams
+                                    .iter()
+                                    .map(|p| p.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(":")
+                            })
+                            .collect();
+                        sgr.push_str(&param_strs.join(";"));
+                    }
+                    sgr.push('m');
+                    
+                    // Print each character of the escape sequence
+                    for c in sgr.chars() {
+                        self.print(c);
+                    }
+                }
+                // If color_enabled is false, ignore the SGR sequence
+            }
             'S' => {
                 // Scroll Up (SU) - scroll content up N lines
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
@@ -500,9 +530,6 @@ impl Perform for Screen {
             'g' => {
                 // Clear Tab Stop (tbc) - mode 3 clears all, mode 0 clears current
                 // We use fixed 8-column tabs, so ignore
-            }
-            'm' => {
-                // SGR - ignore (colors/attributes) - intentionally not logged to debug buffer
             }
             _ => {
                 // Record unhandled CSI sequence
