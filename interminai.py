@@ -216,8 +216,22 @@ class Screen:
             c = self.last_char
             for _ in range(n):
                 self.print_char(c)
-        elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
-            pass
+        elif action == 'm':  # SGR (Select Graphic Rendition) - color and style codes
+            if self.color_enabled:
+                # Reconstruct the escape sequence and print it
+                sgr = '\x1b['
+                
+                if not params:
+                    sgr += '0'
+                else:
+                    sgr += ';'.join(str(p) for p in params)
+                
+                sgr += 'm'
+                
+                # Print each character of the escape sequence
+                for c in sgr:
+                    self.print_char(c)
+            # If color_enabled is False, ignore the SGR sequence
         else:
             # Unhandled CSI sequence - record it
             if raw_bytes:
