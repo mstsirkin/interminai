@@ -69,7 +69,7 @@ class DebugBuffer:
 class Screen:
     """Simple terminal emulator screen buffer"""
 
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, color_enabled=False):
         self.rows = rows
         self.cols = cols
         self.cells = [[' ' for _ in range(cols)] for _ in range(rows)]
@@ -77,6 +77,7 @@ class Screen:
         self.cursor_col = 0
         self.last_char = ' '
         self.debug_buffer = DebugBuffer()
+        self.color_enabled = color_enabled
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -324,11 +325,11 @@ class Screen:
 class DaemonState:
     """State for the daemon process"""
 
-    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated):
+    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, color_enabled):
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
-        self.screen = Screen(rows, cols)
+        self.screen = Screen(rows, cols, color_enabled)
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
@@ -399,7 +400,7 @@ def cmd_start(args):
         print(f"PID: {os.getpid()}")
         print(f"Auto-generated: {socket_was_auto_generated}")
         sys.stdout.flush()
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.color)
     else:
         # Daemonize (double fork)
         pid = os.fork()
@@ -437,10 +438,10 @@ def cmd_start(args):
             os.close(devnull)
 
         # Run daemon
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.color)
 
 
-def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
+def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, color_enabled):
     """Run the daemon process"""
     # Create PTY
     master_fd, slave_fd = pty.openpty()
@@ -483,7 +484,7 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
     os.close(slave_fd)
 
     # Create state
-    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated)
+    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, color_enabled)
 
     # Create Unix socket
     if os.path.exists(socket_path):
@@ -709,8 +710,9 @@ def handle_resize(data, state):
     try:
         set_window_size(state.master_fd, rows, cols)
 
-        # Resize screen buffer
-        state.screen = Screen(rows, cols)
+        # Resize screen buffer (preserve color_enabled)
+        color_enabled = state.screen.color_enabled
+        state.screen = Screen(rows, cols, color_enabled)
 
         return {'status': 'ok', 'data': {'message': f'Resized to {cols}x{rows}'}}
     except Exception as e:
@@ -1005,6 +1007,7 @@ def main():
     start_parser.add_argument('--socket', help='Socket path')
     start_parser.add_argument('--size', default='80x24', help='Terminal size (COLSxROWS)')
     start_parser.add_argument('--no-daemon', action='store_true', help='Run in foreground')
+    start_parser.add_argument('--color', action='store_true', help='Enable SGR (color/style) support')
     start_parser.add_argument('command', nargs='+', help='Command to run')
     start_parser.set_defaults(func=cmd_start)
 
