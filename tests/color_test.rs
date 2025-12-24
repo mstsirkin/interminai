@@ -112,10 +112,14 @@ fn test_color_flag_enables_sgr() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // With --color, SGR sequences should be processed and text should appear
+    // With --color, SGR sequences should be preserved in output
+    assert!(stdout.contains("\x1b[31m"), "Should contain red color escape code");
     assert!(stdout.contains("Red"));
+    assert!(stdout.contains("\x1b[32m"), "Should contain green color escape code");
     assert!(stdout.contains("Green"));
+    assert!(stdout.contains("\x1b[34m"), "Should contain blue color escape code");
     assert!(stdout.contains("Blue"));
+    assert!(stdout.contains("\x1b[0m"), "Should contain reset escape code");
 
     daemon.stop();
 }
@@ -144,10 +148,11 @@ fn test_without_color_flag_strips_sgr() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Without --color, text should still appear (SGR stripped/ignored)
+    // Without --color, text should appear but SGR codes should be stripped
     assert!(stdout.contains("Red"));
     assert!(stdout.contains("Green"));
     assert!(stdout.contains("Blue"));
+    assert!(!stdout.contains("\x1b["), "Should not contain any escape codes");
 
     daemon.stop();
 }
@@ -174,9 +179,11 @@ fn test_color_flag_preserves_bold() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Should contain the text regardless
+    // Should contain the text and bold escape codes
+    assert!(stdout.contains("\x1b[1m"), "Should contain bold escape code");
     assert!(stdout.contains("Bold"));
     assert!(stdout.contains("Normal"));
+    assert!(stdout.contains("\x1b[0m"), "Should contain reset escape code");
 
     daemon.stop();
 }
@@ -203,8 +210,12 @@ fn test_color_flag_with_background_colors() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
+    // Should contain text and background color codes
+    assert!(stdout.contains("\x1b[41m"), "Should contain red background escape code");
     assert!(stdout.contains("Red BG"));
+    assert!(stdout.contains("\x1b[42m"), "Should contain green background escape code");
     assert!(stdout.contains("Green BG"));
+    assert!(stdout.contains("\x1b[0m"), "Should contain reset escape code");
 
     daemon.stop();
 }
