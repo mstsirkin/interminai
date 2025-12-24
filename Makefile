@@ -30,16 +30,16 @@ install-skill-rust: build
 	@echo "Installing to skills/interminai/scripts/"
 	@mkdir -p skills/interminai/scripts
 	@cp target/release/interminai skills/interminai/scripts/interminai
-	@echo "✓ Installed Rust version to skills/interminai/scripts/interminai"
-	@echo "  (accessible via .claude/skills and .codex/skills symlinks)"
+	@echo "Installed Rust version to skills/interminai/scripts/interminai"
+	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-skill-python:
 	@echo "Installing Python implementation..."
 	@mkdir -p skills/interminai/scripts
 	@cp interminai.py skills/interminai/scripts/interminai
 	@chmod +x skills/interminai/scripts/interminai
-	@echo "✓ Installed Python version to skills/interminai/scripts/interminai"
-	@echo "  (accessible via .claude/skills and .codex/skills symlinks)"
+	@echo "Installed Python version to skills/interminai/scripts/interminai"
+	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
 	@echo "Installing skill to ~/.claude/skills/..."
@@ -61,7 +61,7 @@ test-python:
 test-skill: subprojects/agentskills/skills-ref/.venv ## Validate skill using skills-ref
 	@echo "Validating skill..."
 	@. subprojects/agentskills/skills-ref/.venv/bin/activate && skills-ref validate skills/interminai
-	@echo "✓ Skill validation passed"
+	@echo "Skill validation passed"
 
 subprojects/agentskills/skills-ref/.venv:
 	@git submodule update --init
@@ -80,7 +80,7 @@ demo-gdb:
 	@./demo-gdb-setup.sh
 	@echo "Recording GDB demo with VHS..."
 	@FORCE_COLOR=1 vhs demo-gdb.tape
-	@echo "✓ Demo created: demo-gdb.gif"
+	@echo "Demo created: demo-gdb.gif"
 
 clean:
 	cargo clean
