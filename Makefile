@@ -44,6 +44,8 @@ install-skill-python:
 install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
 	@echo "Installing skill to ~/.claude/skills/..."
 	@mkdir -p ~/.claude/skills
+	@mkdir -p ~/.claude/skills-backup
+	@mv -b -f ~/.claude/skills/interminai ~/.claude/skills-backup
 	@cp -r skills/interminai ~/.claude/skills/
 	@echo "✓ Installed skill to ~/.claude/skills/interminai"
 
