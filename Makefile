@@ -45,9 +45,11 @@ install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude C
 	@echo "Installing skill to ~/.claude/skills/..."
 	@mkdir -p ~/.claude/skills
 	@mkdir -p ~/.claude/skills-backup
-	@mv -b -f ~/.claude/skills/interminai ~/.claude/skills-backup
-	@cp -r skills/interminai ~/.claude/skills/
-	@echo "✓ Installed skill to ~/.claude/skills/interminai"
+	@TMPDIR=$$(mktemp -d ~/.claude/skills-backup/XXXXXX) && \
+		cp -r skills/interminai "$$TMPDIR/interminai" && \
+		mv --exchange "$$TMPDIR/interminai" ~/.claude/skills/interminai && \
+		echo "Installed skill to ~/.claude/skills/interminai" && \
+		echo "Old version moved to $$TMPDIR/interminai"
 
 test: test-rust test-python test-skill
 
