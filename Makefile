@@ -59,8 +59,7 @@ install-atomic:
 	@mkdir -p $(INSTALL_NAME)
 	@TMPDIR=$$(mktemp -d $(INSTALL_BACKUP)/XXXXXX) && \
 		cp -r $(INSTALL_SRC) "$$TMPDIR/interminai" && \
-		test -z "$(IMPL_SRC)" || cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai" && \
-		test -z "$(IMPL_SRC)" || chmod +x "$$TMPDIR/interminai/scripts/interminai" && \
+		test -n "$(IMPL_SRC)" && cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai" && chmod +x "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(INSTALL_DST) && \
 		mv --exchange "$$TMPDIR/interminai" $(INSTALL_DST)
 
