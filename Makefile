@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-claude build test-rust test-python test-skill demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude build test-rust test-python test-skill demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
