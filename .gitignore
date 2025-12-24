@@ -5,4 +5,4 @@ Cargo.lock
 **/*.swp
 __pycache__/
 *.pyc
-skills/interminai/scripts/interminai
+agent/

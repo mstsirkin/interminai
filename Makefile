@@ -27,26 +27,36 @@ build:
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
 install-skill-rust: build
-	@echo "Installing to skills/interminai/scripts/"
-	@mkdir -p skills/interminai/scripts
-	@cp target/release/interminai skills/interminai/scripts/interminai
-	@echo "Installed Rust version to skills/interminai/scripts/interminai"
-	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
+	@echo "Installing Rust implementation to agent/skills/..."
+	@mkdir -p agent/skills-backup
+	@mkdir -p agent/skills/interminai
+	@TMPDIR=$$(mktemp -d agent/skills-backup/XXXXXX) && \
+		cp -r skills/interminai "$$TMPDIR/interminai" && \
+		cp target/release/interminai "$$TMPDIR/interminai/scripts/interminai" && \
+		mkdir -p agent/skills && \
+		mv --exchange "$$TMPDIR/interminai" agent/skills && \
+		echo "Installed Rust version to agent/skills/interminai" && \
+		echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-skill-python:
-	@echo "Installing Python implementation..."
-	@mkdir -p skills/interminai/scripts
-	@cp interminai.py skills/interminai/scripts/interminai
-	@chmod +x skills/interminai/scripts/interminai
-	@echo "Installed Python version to skills/interminai/scripts/interminai"
-	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
+	@echo "Installing Python implementation to agent/skills/..."
+	@mkdir -p agent/skills-backup
+	@mkdir -p agent/skills/interminai
+	@TMPDIR=$$(mktemp -d agent/skills-backup/XXXXXX) && \
+		cp -r skills/interminai "$$TMPDIR/interminai" && \
+		cp interminai.py "$$TMPDIR/interminai/scripts/interminai" && \
+		chmod +x "$$TMPDIR/interminai/scripts/interminai" && \
+		mkdir -p agent/skills && \
+		mv --exchange "$$TMPDIR/interminai" agent/skills 2>/dev/null && \
+		echo "Installed Python version to agent/skills/interminai" && \
+		echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
 	@echo "Installing skill to ~/.claude/skills/..."
 	@mkdir -p ~/.claude/skills
 	@mkdir -p ~/.claude/skills-backup
 	@TMPDIR=$$(mktemp -d ~/.claude/skills-backup/XXXXXX) && \
-		cp -r skills/interminai "$$TMPDIR/interminai" && \
+		cp -r agent/skills/interminai "$$TMPDIR/interminai" && \
 		mv --exchange "$$TMPDIR/interminai" ~/.claude/skills/interminai && \
 		echo "Installed skill to ~/.claude/skills/interminai" && \
 		echo "Old version moved to $$TMPDIR/interminai"
@@ -86,5 +96,5 @@ demo-gdb:
 
 clean:
 	cargo clean
-	rm -f skills/interminai/scripts/interminai
+	rm -rf agent
 	-git submodule deinit -f subprojects/agentskills
