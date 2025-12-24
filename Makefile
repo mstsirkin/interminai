@@ -39,7 +39,6 @@ install-skill-python: install-skill-impl
 
 install-skill-impl: DST = agent/skills
 install-skill-impl: install-atomic
-	@echo "Installed $(NAME) version to agent/skills/interminai"
 	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
 install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ for Claude Code
@@ -48,13 +47,11 @@ install-claude-rust: NAME = Rust
 install-claude-rust: SRC = target/release/interminai
 install-claude-rust: DST = ~/.claude/skills
 install-claude-rust: install-atomic
-	@echo "Installed Rust skill to ~/.claude/skills/interminai"
 
 install-claude-python: NAME = Python
 install-claude-python: SRC = interminai.py
 install-claude-python: DST = ~/.claude/skills
 install-claude-python: install-atomic
-	@echo "Installed Python skill to ~/.claude/skills/interminai"
 
 install-atomic: build
 	@test -n "$(DST)"
@@ -65,6 +62,7 @@ install-atomic: build
 		test -n "$(SRC)" && cp $(SRC) "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(DST) && \
 		mv --exchange "$$TMPDIR/interminai" $(DST)
+	@echo "Installed $(NAME) version to $(DST)/interminai"
 
 test: test-rust test-python test-skill
 
