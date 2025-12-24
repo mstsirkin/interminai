@@ -1,4 +1,4 @@
-.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude build test-rust test-python test-skill demo demo-gdb clean
+.PHONY: help install-skill install-skill-rust install-skill-python install-skill-impl install-claude install-atomic build test-rust test-python test-skill demo demo-gdb clean
 
 .DEFAULT_GOAL := help
 
@@ -34,30 +34,35 @@ install-skill-python: IMPL_NAME = Python
 install-skill-python: IMPL_SRC = interminai.py
 install-skill-python: install-skill-impl
 
-install-skill-impl:
-	@test -n "$(IMPL_NAME)" || { echo "Error: IMPL_NAME not set"; exit 1; }
-	@test -n "$(IMPL_SRC)" || { echo "Error: IMPL_SRC not set"; exit 1; }
-	@echo "Installing $(IMPL_NAME) implementation to agent/skills/..."
-	@mkdir -p agent/skills-backup
-	@mkdir -p agent/skills/interminai
-	@TMPDIR=$$(mktemp -d agent/skills-backup/XXXXXX) && \
-		cp -r skills/interminai "$$TMPDIR/interminai" && \
-		cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai" && \
-		chmod +x "$$TMPDIR/interminai/scripts/interminai" && \
-		mkdir -p agent/skills && \
-		mv --exchange "$$TMPDIR/interminai" agent/skills && \
-		echo "Installed $(IMPL_NAME) version to agent/skills/interminai" && \
-		echo "(accessible via .claude/skills and .codex/skills symlinks)"
+install-skill-impl: INSTALL_SRC = skills/interminai
+install-skill-impl: INSTALL_DST = agent/skills
+install-skill-impl: INSTALL_BACKUP = agent/skills-backup
+install-skill-impl: INSTALL_NAME = agent/skills/interminai
+install-skill-impl: install-atomic
+	@echo "Installed $(IMPL_NAME) version to agent/skills/interminai"
+	@echo "(accessible via .claude/skills and .codex/skills symlinks)"
 
-install-claude: install-skill ## Install skill to ~/.claude/skills/ for Claude Code
-	@echo "Installing skill to ~/.claude/skills/..."
-	@mkdir -p ~/.claude/skills
-	@mkdir -p ~/.claude/skills-backup
-	@TMPDIR=$$(mktemp -d ~/.claude/skills-backup/XXXXXX) && \
-		cp -r agent/skills/interminai "$$TMPDIR/interminai" && \
-		mv --exchange "$$TMPDIR/interminai" ~/.claude/skills/interminai && \
-		echo "Installed skill to ~/.claude/skills/interminai" && \
-		echo "Old version moved to $$TMPDIR/interminai"
+install-claude: INSTALL_SRC = agent/skills/interminai
+install-claude: INSTALL_DST = ~/.claude/skills
+install-claude: INSTALL_BACKUP = ~/.claude/skills-backup
+install-claude: INSTALL_NAME = ~/.claude/skills/interminai
+install-claude: install-skill install-atomic
+	@echo "Installed skill to ~/.claude/skills/interminai"
+	@echo "Old version moved to $$TMPDIR/interminai"
+
+install-atomic:
+	@test -n "$(INSTALL_SRC)" || { echo "Error: INSTALL_SRC not set"; exit 1; }
+	@test -n "$(INSTALL_DST)" || { echo "Error: INSTALL_DST not set"; exit 1; }
+	@test -n "$(INSTALL_BACKUP)" || { echo "Error: INSTALL_BACKUP not set"; exit 1; }
+	@test -n "$(INSTALL_NAME)" || { echo "Error: INSTALL_NAME not set"; exit 1; }
+	@mkdir -p $(INSTALL_BACKUP)
+	@mkdir -p $(INSTALL_NAME)
+	@TMPDIR=$$(mktemp -d $(INSTALL_BACKUP)/XXXXXX) && \
+		cp -r $(INSTALL_SRC) "$$TMPDIR/interminai" && \
+		test -z "$(IMPL_SRC)" || cp $(IMPL_SRC) "$$TMPDIR/interminai/scripts/interminai" && \
+		test -z "$(IMPL_SRC)" || chmod +x "$$TMPDIR/interminai/scripts/interminai" && \
+		mkdir -p $(INSTALL_DST) && \
+		mv --exchange "$$TMPDIR/interminai" $(INSTALL_DST)
 
 test: test-rust test-python test-skill
 
