@@ -49,6 +49,10 @@ enum Commands {
         #[arg(long)]
         no_daemon: bool,
 
+        /// Enable SGR (color/style) support
+        #[arg(long)]
+        color: bool,
+
         /// Command to run
         #[arg(required = true, last = true)]
         command: Vec<String>,
@@ -229,14 +233,15 @@ struct Screen {
     cursor_col: usize,
     last_char: char,
     debug_buffer: DebugBuffer,
+    color_enabled: bool,
 }
 
 impl Screen {
-    fn new(rows: usize, cols: usize) -> Self {
-        Self::with_debug_buffer(rows, cols, 10)
+    fn new(rows: usize, cols: usize, color_enabled: bool) -> Self {
+        Self::with_debug_buffer(rows, cols, 10, color_enabled)
     }
 
-    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
+    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize, color_enabled: bool) -> Self {
         Screen {
             rows,
             cols,
@@ -245,6 +250,7 @@ impl Screen {
             cursor_col: 0,
             last_char: ' ',
             debug_buffer: DebugBuffer::new(debug_buffer_size),
+            color_enabled,
         }
     }
 
@@ -688,7 +694,7 @@ fn auto_generate_socket_path() -> Result<String> {
     Ok(socket_path)
 }
 
-fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<String>) -> Result<()> {
+fn cmd_start(socket: Option<String>, size: String, daemon: bool, color: bool, command: Vec<String>) -> Result<()> {
     let socket_was_auto_generated = socket.is_none();
     let socket_path = match socket {
         Some(path) => path,
@@ -703,7 +709,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, command);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, color, command);
     }
 
     // Double-fork to properly daemonize
@@ -766,7 +772,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, command) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, color, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -785,7 +791,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, command: Vec<String>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, color: bool, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -820,7 +826,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             let state = Arc::new(Mutex::new(DaemonState {
                 master_fd: pty.master,
                 child_pid: Pid::from_raw(child),
-                screen: Screen::new(rows as usize, cols as usize),
+                screen: Screen::new(rows as usize, cols as usize, color),
                 parser: vte::Parser::new(),
                 exit_code: None,
                 socket_path: socket_path.clone(),
@@ -1142,7 +1148,8 @@ fn handle_resize(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
 
     // Update screen buffer dimensions
     // Create new screen with new dimensions
-    let mut new_screen = Screen::new(rows as usize, cols as usize);
+    let color_enabled = state.screen.color_enabled;
+    let mut new_screen = Screen::new(rows as usize, cols as usize, color_enabled);
 
     // Copy old content to new screen (preserve as much as possible)
     let old_screen = &state.screen;
@@ -1345,8 +1352,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { socket, size, no_daemon, command } => {
-            cmd_start(socket, size, !no_daemon, command)?;
+        Commands::Start { socket, size, no_daemon, color, command } => {
+            cmd_start(socket, size, !no_daemon, color, command)?;
         }
         Commands::Input { socket, text } => {
             // Use --text if provided, otherwise read from stdin
