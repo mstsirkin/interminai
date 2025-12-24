@@ -21,14 +21,13 @@ help: ## Show this help message
 	@echo ""
 
 build:
-	@echo "Building Rust release binary..."
-	@cargo build --release
+	@test "$(IMPL_SRC)" = "target/release/interminai" && echo "Building Rust release binary..." && cargo build --release || true
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
 install-skill-rust: IMPL_NAME = Rust
 install-skill-rust: IMPL_SRC = target/release/interminai
-install-skill-rust: build install-skill-impl
+install-skill-rust: install-skill-impl
 
 install-skill-python: IMPL_NAME = Python
 install-skill-python: IMPL_SRC = interminai.py
@@ -47,10 +46,10 @@ install-claude: INSTALL_SRC = skills/interminai
 install-claude: INSTALL_DST = ~/.claude/skills
 install-claude: INSTALL_BACKUP = ~/.claude/skills-backup
 install-claude: INSTALL_NAME = ~/.claude/skills/interminai
-install-claude: build install-atomic
+install-claude: install-atomic
 	@echo "Installed skill to ~/.claude/skills/interminai"
 
-install-atomic:
+install-atomic: build
 	@test -n "$(INSTALL_SRC)"
 	@test -n "$(INSTALL_DST)"
 	@test -n "$(INSTALL_BACKUP)"
