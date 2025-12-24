@@ -55,6 +55,18 @@ rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
 
+## Terminal Size
+
+Default terminal size is 80x24. If not enough context fits on screen, use `--size` on start or `resize` to increase the window. Don't go overboard to avoid filling your context with excessive output.
+
+```bash
+# Start with larger terminal
+./scripts/interminai start --socket "$SOCKET" --size 80x256 -- COMMAND
+
+# Or resize during session
+./scripts/interminai resize --socket "$SOCKET" --size 80x256
+```
+
 ## Vim Navigation Tips
 
 Exact counts for `h`/`j`/`k`/`l` are critical - cursor position after `dd` isn't always intuitive. Prefer:
