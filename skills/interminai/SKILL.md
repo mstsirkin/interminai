@@ -64,6 +64,16 @@ Exact counts for `h`/`j`/`k`/`l` are critical - cursor position after `dd` isn't
 - `gg`/`G` - Anchor from known position
 - `--cursor print` - Check position after operations
 
+## Complex Edits Shortcut
+
+For complex multi-line edits, another option is to edit outside vim:
+
+1. Use `output` to observe the file name
+2. Use the Edit tool to modify the file directly
+3. In vim, reload the file (`:e!\n`) or simply exit (`:q!\n`)
+
+This avoids tricky vim navigation for large or intricate changes.
+
 ## Git Example
 
 ```bash
