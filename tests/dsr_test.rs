@@ -165,3 +165,38 @@ fn test_dsr_with_vim_text_insertion() {
     
     daemon.stop();
 }
+
+#[test]
+fn test_dsr_at_specific_position() {
+    let env = TestEnv::new();
+    
+    // Start cat which will echo everything back
+    let daemon = DaemonHandle::spawn_with_socket(
+        &env.socket(),
+        &["cat"]
+    );
+    
+    thread::sleep(Duration::from_millis(500));
+    
+    // Send: cursor position command to move to (5, 10), then DSR query, then newline to flush
+    // ESC[5;10H = move to row 5, col 10
+    // ESC[6n = query cursor position
+    // Use stdin piping which we know works from manual testing
+    let mut cmd = Command::new(interminai_bin());
+    cmd.arg("input")
+        .arg("--socket")
+        .arg(&env.socket())
+        .write_stdin(b"\x1b[5;10H\x1b[6n\n")
+        .assert()
+        .success();
+    
+    thread::sleep(Duration::from_millis(1000));  // Wait for cat to echo DSR response
+    
+    let output = get_output(&env.socket());
+    
+    // Should contain the CPR response showing position 5;10
+    assert!(output.contains("5;10R"), 
+            "Should contain cursor position report '5;10R'. Got: {}", output);
+    
+    daemon.stop();
+}
