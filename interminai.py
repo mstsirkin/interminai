@@ -69,7 +69,7 @@ class DebugBuffer:
 class Screen:
     """Simple terminal emulator screen buffer"""
 
-    def __init__(self, rows, cols, color_enabled=False):
+    def __init__(self, rows, cols, color_enabled=False, master_fd=None):
         self.rows = rows
         self.cols = cols
         self.cells = [[' ' for _ in range(cols)] for _ in range(rows)]
@@ -78,11 +78,21 @@ class Screen:
         self.last_char = ' '
         self.debug_buffer = DebugBuffer()
         self.color_enabled = color_enabled
+        self.master_fd = master_fd
 
     def scroll_up(self):
         """Scroll screen up by one line"""
         self.cells.pop(0)
         self.cells.append([' ' for _ in range(self.cols)])
+
+    def write_to_pty(self, data):
+        """Write data to the PTY master fd"""
+        if self.master_fd is not None:
+            try:
+                os.write(self.master_fd, data)
+            except (OSError, IOError):
+                pass  # Ignore write errors
+
 
     def print_char(self, c):
         """Print a character at cursor position"""
@@ -218,6 +228,12 @@ class Screen:
                 self.print_char(c)
         elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
             pass
+        elif action == 'n':  # DSR - Device Status Report
+            mode = params[0] if params else 0
+            if mode == 6:  # CPR - Cursor Position Report
+                # Respond with ESC[{row};{col}R (1-based)
+                response = f'\x1b[{self.cursor_row + 1};{self.cursor_col + 1}R'
+                self.write_to_pty(response.encode('utf-8'))
         else:
             # Unhandled CSI sequence - record it
             if raw_bytes:
@@ -329,7 +345,7 @@ class DaemonState:
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
-        self.screen = Screen(rows, cols, color_enabled)
+        self.screen = Screen(rows, cols, color_enabled, master_fd)
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
