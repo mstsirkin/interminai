@@ -229,6 +229,9 @@ class Screen:
         elif action == 'm':  # SGR - intentionally ignored (colors/attributes)
             pass
         elif action == 'n':  # DSR - Device Status Report
+            # Note: So far no application breakage was reported due to lack of DSR.
+            # However, we implement it for completeness as it's part of the standard terminal protocol.
+            # Implementation complexity: Requires passing PTY fd to Screen.
             mode = params[0] if params else 0
             if mode == 6:  # CPR - Cursor Position Report
                 # Respond with ESC[{row};{col}R (1-based)
