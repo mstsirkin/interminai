@@ -149,10 +149,13 @@ fn test_debug_basic_functionality() {
 /// Test debug on non-existent socket fails gracefully
 #[test]
 fn test_debug_nonexistent_socket() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let nonexistent = temp_dir.path().join("nonexistent.sock");
+    
     let output = Command::new(interminai_bin())
         .arg("debug")
         .arg("--socket")
-        .arg("/tmp/nonexistent-socket-12345.sock")
+        .arg(nonexistent.to_str().unwrap())
         .timeout(Duration::from_secs(2))
         .output()
         .expect("Failed to run debug command");
