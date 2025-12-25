@@ -234,6 +234,7 @@ struct Screen {
     last_char: char,
     debug_buffer: DebugBuffer,
     color_enabled: bool,
+    master_fd: Option<Arc<OwnedFd>>,
 }
 
 impl Screen {
@@ -251,6 +252,17 @@ impl Screen {
             last_char: ' ',
             debug_buffer: DebugBuffer::new(debug_buffer_size),
             color_enabled,
+            master_fd: None,
+        }
+    }
+
+    fn set_master_fd(&mut self, fd: Arc<OwnedFd>) {
+        self.master_fd = Some(fd);
+    }
+
+    fn write_to_pty(&self, data: &[u8]) {
+        if let Some(ref fd) = self.master_fd {
+            let _ = nix::unistd::write(fd.as_raw_fd(), data);
         }
     }
 
@@ -531,6 +543,18 @@ impl Perform for Screen {
                 // Clear Tab Stop (tbc) - mode 3 clears all, mode 0 clears current
                 // We use fixed 8-column tabs, so ignore
             }
+            'n' => {
+                // DSR (Device Status Report)
+                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
+                if mode == 6 {
+                    // CPR (Cursor Position Report) - report cursor position
+                    // Format: ESC [ {row} ; {col} R
+                    // Note: cursor position is 1-indexed in the response
+                    let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
+                    self.write_to_pty(response.as_bytes());
+                }
+                // Other DSR modes are ignored
+            }
             _ => {
                 // Record unhandled CSI sequence
                 let mut seq = String::from("\\e[");
@@ -584,7 +608,7 @@ impl Perform for Screen {
 }
 
 struct DaemonState {
-    master_fd: OwnedFd,
+    master_fd: Arc<OwnedFd>,
     child_pid: Pid,
     screen: Screen,
     parser: vte::Parser,
@@ -850,10 +874,14 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 .context("Failed to set PTY non-blocking")?;
 
             // Create state
+            let master_fd = Arc::new(pty.master);
+            let mut screen = Screen::new(rows as usize, cols as usize, color);
+            screen.set_master_fd(master_fd.clone());
+            
             let state = Arc::new(Mutex::new(DaemonState {
-                master_fd: pty.master,
+                master_fd,
                 child_pid: Pid::from_raw(child),
-                screen: Screen::new(rows as usize, cols as usize, color),
+                screen,
                 parser: vte::Parser::new(),
                 exit_code: None,
                 socket_path: socket_path.clone(),
@@ -1177,6 +1205,7 @@ fn handle_resize(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     // Create new screen with new dimensions
     let color_enabled = state.screen.color_enabled;
     let mut new_screen = Screen::new(rows as usize, cols as usize, color_enabled);
+    new_screen.set_master_fd(state.master_fd.clone());
 
     // Copy old content to new screen (preserve as much as possible)
     let old_screen = &state.screen;
