@@ -545,6 +545,9 @@ impl Perform for Screen {
             }
             'n' => {
                 // DSR (Device Status Report)
+                // Note: So far no application breakage was reported due to lack of DSR.
+                // However, we implement it for completeness as it's part of the standard terminal protocol.
+                // Implementation complexity: Requires Arc<OwnedFd> for thread-safe PTY access.
                 let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
                 if mode == 6 {
                     // CPR (Cursor Position Report) - report cursor position
