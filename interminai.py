@@ -994,6 +994,10 @@ def cmd_debug(args):
 
 
 def main():
+    # Handle SIGPIPE properly - when piped to head/less/etc, exit silently
+    # instead of raising BrokenPipeError
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
     # Ensure stdout is unbuffered for immediate output
     sys.stdout.reconfigure(line_buffering=True)
 
