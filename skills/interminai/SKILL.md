@@ -19,6 +19,8 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 
 **Use for interactive commands** that wait for input, show menus/prompts, or use full-screen interfaces (vim, git rebase -i, htop, apt).
 
+**Use if you get errors like this "Warning: Output is not to a terminal" or "Warning: Input is not from a terminal".
+
 **Don't use** for simple commands that just run and exit - use Shell instead.
 
 ## Quick Start
