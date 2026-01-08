@@ -209,6 +209,13 @@ class Screen:
             for _ in range(n):
                 self.cells.pop()
                 self.cells.insert(0, [' ' for _ in range(self.cols)])
+        elif action == 'I':  # Cursor Horizontal Tab (cht) - move forward to next tab stop N times
+            n = max(params[0] if params else 1, 1)
+            for _ in range(n):
+                self.cursor_col = ((self.cursor_col // 8) + 1) * 8
+                if self.cursor_col >= self.cols:
+                    self.cursor_col = self.cols - 1
+                    break
         elif action == 'Z':  # Back Tab (cbt)
             if self.cursor_col > 0:
                 self.cursor_col = ((self.cursor_col - 1) // 8) * 8
