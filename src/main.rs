@@ -480,6 +480,17 @@ impl Perform for Screen {
                     self.cells.insert(0, vec![' '; self.cols]);
                 }
             }
+            'I' => {
+                // Cursor Horizontal Tab (cht) - move forward to next tab stop N times
+                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                for _ in 0..n {
+                    self.cursor_col = ((self.cursor_col / 8) + 1) * 8;
+                    if self.cursor_col >= self.cols {
+                        self.cursor_col = self.cols - 1;
+                        break;
+                    }
+                }
+            }
             'Z' => {
                 // Back Tab (cbt) - move to previous tab stop
                 if self.cursor_col > 0 {
