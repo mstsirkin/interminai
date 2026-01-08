@@ -229,6 +229,8 @@ struct Screen {
     cursor_col: usize,
     last_char: char,
     debug_buffer: DebugBuffer,
+    /// Pending responses to be sent back to the PTY (e.g., for DSR cursor position query)
+    pending_responses: Vec<Vec<u8>>,
 }
 
 impl Screen {
@@ -245,6 +247,7 @@ impl Screen {
             cursor_col: 0,
             last_char: ' ',
             debug_buffer: DebugBuffer::new(debug_buffer_size),
+            pending_responses: Vec::new(),
         }
     }
 
@@ -498,6 +501,16 @@ impl Perform for Screen {
             'm' => {
                 // SGR - ignore (colors/attributes) - intentionally not logged to debug buffer
             }
+            'n' => {
+                // Device Status Report (DSR)
+                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
+                if mode == 6 {
+                    // Report cursor position: ESC [ row ; col R (1-based)
+                    let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
+                    self.pending_responses.push(response.into_bytes());
+                }
+                // Other modes (5 = device status) are ignored
+            }
             _ => {
                 // Record unhandled CSI sequence
                 let mut seq = String::from("\\e[");
@@ -590,6 +603,11 @@ impl DaemonState {
                 }
                 Err(_) => break,
             }
+        }
+
+        // Send any pending responses back to the PTY (e.g., cursor position reports)
+        for response in self.screen.pending_responses.drain(..) {
+            let _ = nix::unistd::write(self.master_fd.as_raw_fd(), &response);
         }
     }
 }
