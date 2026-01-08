@@ -26,18 +26,19 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 ## Quick Start
 
 ```bash
-# 1. Start session (socket printed on stdout)
-./scripts/interminai start -- COMMAND
-Socket: /tmp/interminai-0GF4Bd/socket
-# save socket name!  E.g. here it is /tmp/interminai-0GF4Bd/socket
+# 1. Start session
+SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
+./scripts/interminai start --socket "$SOCKET" -- COMMAND
+
 # 2. Send input (--text supports escapes: \n \e \t \xHH etc.)
-./scripts/interminai input --socket /tmp/interminai-0GF4Bd/socket --text ':wq\n'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
 
 # 3. Check screen
-./scripts/interminai output --socket /tmp/interminai-0GF4Bd/socket
+./scripts/interminai output --socket "$SOCKET"
 
 # 4. Clean up (always!)
-./scripts/interminai stop --socket /tmp/interminai-0GF4Bd/socket
+./scripts/interminai stop --socket "$SOCKET"
+rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
 
 ## Essential Commands
@@ -49,8 +50,8 @@ Socket: /tmp/interminai-0GF4Bd/socket
 
 ## Key Best Practices
 
-1. **Unique sockets**: Use `` SOCKET=... `` with value printed by start
-2. **Always clean up**: `stop` when no longer in use
+1. **Unique sockets**: Use `` SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock ``
+2. **Always clean up**: `stop`, then `rm` the socket directory
 3. **Check output after each input** - don't blindly chain commands
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
@@ -106,8 +107,8 @@ it will be waiting for it next time, too.
 ## Git Example
 
 ```bash
-GIT_EDITOR=vim ./scripts/interminai start -- git rebase -i HEAD~3
-SOCKET=/tmp/interminai-ABCDE/socket
+SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
+GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- git rebase -i HEAD~3
 sleep 0.5
 ./scripts/interminai output --socket "$SOCKET"
 # ... edit with input commands ...

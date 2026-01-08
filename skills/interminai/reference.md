@@ -26,37 +26,16 @@ Auto-generated: true
 - **Default (daemon mode):** Forks into background and returns immediately. Perfect for AI agents and scripts.
 - **With `--no-daemon`:** Runs in foreground and blocks until stopped. Useful for debugging and testing.
 
-**Socket auto-generation**
-- **Default (no socket supplied):** Forks into background and returns immediately. Perfect for AI agents and scripts.
 **Examples:**
 ```bash
 # Daemon mode (default) - returns immediately
-interminai start -- vim file.txt
+interminai start --socket /tmp/s.sock -- vim file.txt
 
 # Foreground mode - blocks until stopped
-interminai start --no-daemon -- vim file.txt
-
-#Socket name printed on stdout: Socket: /tmp/interminai-XXXXXx/socket
-
-
-#Option: do not auto-create socket: need to remove after stop
-SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
-interminai start --socket $SOCKET -- vim file.txt
-interminai stop --socket $SOCKET
-rm "$SOCKET"; rmdir `dirname "$SOCKET"`
-
+interminai start --socket /tmp/s.sock --no-daemon -- vim file.txt
 ```
 
 **Always capture the socket path from output!**
-**Format:**
-```bash
-Socket: <socket-path>
-```
-
-**Example:**
-```bash
-Socket: /tmp/interminai-1F0E2c/socket
-```
 
 ## interminai input
 
