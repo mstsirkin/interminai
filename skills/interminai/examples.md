@@ -393,6 +393,48 @@ echo "Search and replace complete!"
 - `/e` - Suppress error if pattern not found
 - `/c` - Confirm each replacement (interactive)
 
+## Example 9: Sudo with Password
+
+Run commands requiring sudo authentication.
+
+```bash
+#!/bin/bash
+SOCK=`mktemp -d /tmp/interminai-XXXXXX`/sock
+
+# Start sudo command
+./scripts/interminai start --socket "$SOCK" -- sudo apt update
+sleep 0.5
+
+# Check for password prompt
+OUTPUT=`./scripts/interminai output --socket "$SOCK"`
+echo "$OUTPUT"
+
+if echo "$OUTPUT" | grep -qi "password"; then
+    echo "=== Password required, prompting user ==="
+    # Use --password to securely get password from user (not echoed)
+    ./scripts/interminai input --socket "$SOCK" --password
+    # User types password in their terminal, Enter appended automatically
+fi
+
+# Wait for command to complete
+./scripts/interminai wait --socket "$SOCK"
+
+# Show final output
+./scripts/interminai output --socket "$SOCK"
+
+# Clean up
+./scripts/interminai stop --socket "$SOCK"
+rm "$SOCK"; rmdir `dirname "$SOCK"`
+
+echo "=== Sudo command complete ==="
+```
+
+**Key Points:**
+- `--password` reads password with echo disabled (secure)
+- Enter (`\r`) is automatically appended
+- Works with sudo, ssh, and any password prompt
+- The password is never visible on screen or in logs
+
 ## Common Vim Command Patterns
 
 Quick reference for vim operations via interminai:

@@ -184,3 +184,28 @@ sleep 0.5
 ./scripts/interminai input --socket /tmp/interminai-xxx/socket --text ':wq\r'
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
+
+## Password Input
+
+For commands requiring password entry (sudo, ssh, etc.), use `--password` to prompt
+the user without echoing the password to the screen:
+
+```bash
+./scripts/interminai start -- sudo apt update
+# Output shows: Socket: /tmp/interminai-xxx/socket
+
+sleep 0.5
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+# Shows: [sudo] password for user:
+
+# Prompt user for password (not echoed, Enter appended automatically)
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --password
+# User types password in their terminal, it's sent to sudo
+
+./scripts/interminai wait --socket /tmp/interminai-xxx/socket
+```
+
+The `--password` flag:
+- Prompts "Type your password and press Enter: "
+- Reads input with echo disabled (password not visible)
+- Automatically appends `\r` (Enter) after input

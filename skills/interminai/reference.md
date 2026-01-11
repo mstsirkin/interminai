@@ -14,6 +14,7 @@ interminai start [--socket PATH] [--size WxH] [--no-daemon] -- COMMAND...
 - `--socket PATH` - Unix socket path (auto-generated if not specified)
 - `--size WxH` - Terminal size (default: 80x24)
 - `--no-daemon` - Run in foreground instead of daemon mode
+- `--pty-dump FILE` - Dump raw PTY output to file (for debugging)
 
 **Output:**
 ```
@@ -49,6 +50,7 @@ printf ':wq\n' | interminai input --socket PATH
 
 **Options:**
 - `--text TEXT` - Input text with escape sequences (preferred, alternative to stdin)
+- `--password` - Read password with echo disabled (appends Enter automatically)
 
 ### Using --text (Recommended)
 
@@ -289,6 +291,24 @@ Termios:
 - Debug why \\r vs \\n behaves differently (check ICRNL flag)
 - Verify an app is in raw mode (TUI apps should be)
 - Identify unhandled escape sequences causing rendering issues
+
+### --pty-dump (on start command)
+
+For low-level debugging, capture all raw PTY output:
+
+```bash
+interminai start --socket /tmp/s.sock --pty-dump /tmp/pty.log -- vim file.txt
+# ... interact with session ...
+interminai stop --socket /tmp/s.sock
+
+# Examine raw bytes
+xxd /tmp/pty.log | head -50
+```
+
+The dump file contains raw bytes exactly as received from the PTY, useful for:
+- Debugging escape sequence issues
+- Reverse engineering terminal protocols
+- Reproducing rendering bugs
 
 ## Error Handling
 
