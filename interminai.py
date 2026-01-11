@@ -1151,13 +1151,17 @@ def cmd_input(args):
         output_request = {'type': 'OUTPUT', 'format': 'ascii'}
         output_response = send_request(args.socket, output_request)
 
-        # Show generic guidance, then the prompt line where the cursor is
+        # Show generic guidance, then the cursor line and previous line for context
         print("Type your secret or password and press Enter.", file=sys.stderr)
         if output_response.get('status') == 'ok':
             data = output_response.get('data', {})
             screen = data.get('screen', '')
             cursor_row = data.get('cursor', {}).get('row', 0)
             lines = screen.split('\n')
+            # Show previous line if it exists and is non-empty
+            if cursor_row > 0 and cursor_row - 1 < len(lines) and lines[cursor_row - 1].strip():
+                print(lines[cursor_row - 1], file=sys.stderr)
+            # Show cursor line
             if cursor_row < len(lines) and lines[cursor_row].strip():
                 print(f"{lines[cursor_row]} ", end='', file=sys.stderr)
                 sys.stderr.flush()
