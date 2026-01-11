@@ -19,6 +19,7 @@ use nix::pty::{openpty, Winsize};
 use nix::unistd::{setsid, Pid};
 use nix::sys::wait::{waitpid, WaitStatus, WaitPidFlag};
 use nix::sys::signal::{kill, Signal};
+use nix::sys::termios::{tcgetattr, LocalFlags, InputFlags, OutputFlags, SpecialCharacterIndices};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::fs;
 use std::path::Path;
@@ -1218,9 +1219,91 @@ fn handle_debug(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
         state.screen.debug_buffer.clear();
     }
 
+    // Get terminal mode info from PTY
+    let termios_info = match tcgetattr(&state.master_fd) {
+        Ok(termios) => {
+            let iflags = termios.input_flags;
+            let oflags = termios.output_flags;
+            let lflags = termios.local_flags;
+            let cflags = termios.control_flags;
+
+            // Mode
+            let is_canonical = lflags.contains(LocalFlags::ICANON);
+            let mode = if is_canonical { "cooked" } else { "raw" };
+
+            // Collect active flags
+            let mut flags = Vec::new();
+            if lflags.contains(LocalFlags::ECHO) { flags.push("ECHO"); }
+            if lflags.contains(LocalFlags::ISIG) { flags.push("ISIG"); }
+            if lflags.contains(LocalFlags::IEXTEN) { flags.push("IEXTEN"); }
+            if iflags.contains(InputFlags::ICRNL) { flags.push("ICRNL"); }
+            if iflags.contains(InputFlags::INLCR) { flags.push("INLCR"); }
+            if iflags.contains(InputFlags::IGNCR) { flags.push("IGNCR"); }
+            if iflags.contains(InputFlags::IXON) { flags.push("IXON"); }
+            if iflags.contains(InputFlags::IXOFF) { flags.push("IXOFF"); }
+            if oflags.contains(OutputFlags::OPOST) { flags.push("OPOST"); }
+            if oflags.contains(OutputFlags::ONLCR) { flags.push("ONLCR"); }
+
+            // Raw hex values
+            let iflag_raw = iflags.bits();
+            let oflag_raw = oflags.bits();
+            let lflag_raw = lflags.bits();
+            let cflag_raw = cflags.bits();
+
+            // Control characters - decode to ^X format
+            // 0 = _POSIX_VDISABLE on Linux (control character disabled)
+            fn decode_cc(b: u8) -> String {
+                match b {
+                    0 => String::from("<disabled>"),
+                    1..=26 => format!("^{}", (b'A' + b - 1) as char),
+                    27 => String::from("^["),
+                    28 => String::from("^\\"),
+                    29 => String::from("^]"),
+                    30 => String::from("^^"),
+                    31 => String::from("^_"),
+                    127 => String::from("^?"),
+                    _ => format!("0x{:02x}", b),
+                }
+            }
+
+            let c_cc = &termios.control_chars;
+            let vintr = decode_cc(c_cc[SpecialCharacterIndices::VINTR as usize]);
+            let veof = decode_cc(c_cc[SpecialCharacterIndices::VEOF as usize]);
+            let verase = decode_cc(c_cc[SpecialCharacterIndices::VERASE as usize]);
+            let vkill = decode_cc(c_cc[SpecialCharacterIndices::VKILL as usize]);
+            let vsusp = decode_cc(c_cc[SpecialCharacterIndices::VSUSP as usize]);
+            let vquit = decode_cc(c_cc[SpecialCharacterIndices::VQUIT as usize]);
+
+            serde_json::json!({
+                "mode": mode,
+                "flags": flags,
+                "raw": {
+                    "iflag": format!("0x{:04x}", iflag_raw),
+                    "oflag": format!("0x{:04x}", oflag_raw),
+                    "lflag": format!("0x{:04x}", lflag_raw),
+                    "cflag": format!("0x{:04x}", cflag_raw)
+                },
+                "c_cc": {
+                    "VINTR": vintr,
+                    "VEOF": veof,
+                    "VERASE": verase,
+                    "VKILL": vkill,
+                    "VSUSP": vsusp,
+                    "VQUIT": vquit
+                }
+            })
+        }
+        Err(e) => {
+            serde_json::json!({
+                "error": format!("Failed to get termios: {}", e)
+            })
+        }
+    };
+
     Response::ok(serde_json::json!({
         "unhandled": entries,
-        "dropped": dropped
+        "dropped": dropped,
+        "termios": termios_info
     }))
 }
 
@@ -1580,6 +1663,50 @@ fn main() -> Result<()> {
 
                 if dropped > 0 {
                     println!("Dropped: {} (buffer overflow)", dropped);
+                }
+
+                // Display termios info
+                if let Some(termios) = data.get("termios") {
+                    if let Some(error) = termios.get("error").and_then(|v| v.as_str()) {
+                        println!("Termios: {}", error);
+                    } else {
+                        println!("Termios:");
+
+                        // Mode
+                        let mode = termios.get("mode").and_then(|v| v.as_str()).unwrap_or("?");
+                        println!("  Mode: {}", mode);
+
+                        // Flags
+                        if let Some(flags) = termios.get("flags").and_then(|v| v.as_array()) {
+                            let flag_strs: Vec<&str> = flags.iter()
+                                .filter_map(|v| v.as_str())
+                                .collect();
+                            if !flag_strs.is_empty() {
+                                println!("  Flags: {}", flag_strs.join(" "));
+                            }
+                        }
+
+                        // Raw values
+                        if let Some(raw) = termios.get("raw") {
+                            let iflag = raw.get("iflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let oflag = raw.get("oflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let lflag = raw.get("lflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            let cflag = raw.get("cflag").and_then(|v| v.as_str()).unwrap_or("?");
+                            println!("  Raw: iflag={} oflag={} lflag={} cflag={}", iflag, oflag, lflag, cflag);
+                        }
+
+                        // Control characters
+                        if let Some(c_cc) = termios.get("c_cc") {
+                            let vintr = c_cc.get("VINTR").and_then(|v| v.as_str()).unwrap_or("?");
+                            let veof = c_cc.get("VEOF").and_then(|v| v.as_str()).unwrap_or("?");
+                            let verase = c_cc.get("VERASE").and_then(|v| v.as_str()).unwrap_or("?");
+                            let vkill = c_cc.get("VKILL").and_then(|v| v.as_str()).unwrap_or("?");
+                            let vsusp = c_cc.get("VSUSP").and_then(|v| v.as_str()).unwrap_or("?");
+                            let vquit = c_cc.get("VQUIT").and_then(|v| v.as_str()).unwrap_or("?");
+                            println!("  c_cc: VINTR={} VEOF={} VERASE={} VKILL={} VSUSP={} VQUIT={}",
+                                vintr, veof, verase, vkill, vsusp, vquit);
+                        }
+                    }
                 }
             }
         }

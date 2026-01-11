@@ -227,11 +227,11 @@ All responses are JSON objects:
 
 ---
 
-### DEBUG - Get unhandled escape sequences
+### DEBUG - Get debug information
 
-Returns a ring buffer of unhandled escape sequences (sequences the terminal
-emulator received but does not implement). Useful for debugging rendering
-issues and identifying which sequences an application uses.
+Returns unhandled escape sequences and terminal (termios) settings. Useful for
+debugging rendering issues, identifying escape sequences an application uses,
+and understanding terminal mode configuration.
 
 **Request:**
 ```json
@@ -243,9 +243,9 @@ issues and identifying which sequences an application uses.
 }
 ```
 
-The `data` field is optional. If omitted or `clear` is false, the buffer is
-returned without modification. If `clear` is true, the buffer is atomically
-returned and then cleared.
+The `data` field is optional. If omitted or `clear` is false, the unhandled
+sequences buffer is returned without modification. If `clear` is true, the
+buffer is atomically returned and then cleared.
 
 **Response:**
 ```json
@@ -254,24 +254,49 @@ returned and then cleared.
   "data": {
     "unhandled": [
       {"sequence": "\\e[?25l", "raw_hex": "1b5b3f32356c"},
-      {"sequence": "\\e7", "raw_hex": "1b37"},
-      {"sequence": "\\e[?1049h", "raw_hex": "1b5b3f3130343968"}
+      {"sequence": "\\e7", "raw_hex": "1b37"}
     ],
-    "dropped": 5
+    "dropped": 5,
+    "termios": {
+      "mode": "cooked",
+      "flags": ["ECHO", "ISIG", "ICRNL", "IXON", "OPOST", "ONLCR"],
+      "raw": {
+        "iflag": "0x0500",
+        "oflag": "0x0005",
+        "lflag": "0x8a3b",
+        "cflag": "0xf00bf"
+      },
+      "c_cc": {
+        "VINTR": "^C",
+        "VEOF": "^D",
+        "VERASE": "^?",
+        "VKILL": "^U",
+        "VSUSP": "^Z",
+        "VQUIT": "^\\"
+      }
+    }
   }
 }
 ```
 
 **Fields:**
-- `unhandled`: Array of unhandled sequences in FIFO order (oldest first)
+- `unhandled`: Array of unhandled escape sequences in FIFO order (oldest first)
   - `sequence`: Human-readable escape sequence (e.g., `\e[?25l`)
   - `raw_hex`: Raw bytes in hexadecimal
-- `dropped`: Number of sequences that were dropped from the buffer due to overflow
+- `dropped`: Number of sequences dropped from the buffer due to overflow
+- `termios`: Terminal settings (from `tcgetattr()`)
+  - `mode`: "cooked" (canonical) or "raw" (non-canonical)
+  - `flags`: Active termios flags (ECHO, ISIG, ICRNL, IXON, OPOST, ONLCR, etc.)
+  - `raw`: Raw hex values for c_iflag, c_oflag, c_lflag, c_cflag
+  - `c_cc`: Control characters in `^X` notation (e.g., `^C` = 0x03)
 
 **Notes:**
 - Buffer size is configurable via `--debug-buffer` flag to `start` (default: 10)
 - Intentionally ignored sequences (like SGR/colors) are not recorded
-- Buffer starts empty; sequences are added when encountered during output processing
+- The `mode` field reflects ICANON: "cooked" means line-buffered input with
+  editing (backspace works), "raw" means each keystroke is passed immediately
+- Common flags: ECHO (echo input), ISIG (Ctrl+C sends SIGINT), ICRNL (CR→NL
+  translation), OPOST/ONLCR (output processing)
 
 ---
 
