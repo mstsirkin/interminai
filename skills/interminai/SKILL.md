@@ -26,19 +26,24 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 ## Quick Start
 
 ```bash
-# 1. Start session (auto-generates unique socket)
-OUTPUT=$(./scripts/interminai start -- COMMAND)
-SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
+# 1. Start session (prints socket path to use in subsequent commands)
+./scripts/interminai start -- vim /tmp/test.txt
+# Output:
+#   PID: 12345
+#   Socket: /tmp/interminai-aBc123/socket
+#   Auto-generated: true
 
-# 2. Send input (--text supports escapes: \r \n \e \t \xHH etc.)
-./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
+# 2. Use the socket path shown above for all subsequent commands
+./scripts/interminai input --socket /tmp/interminai-aBc123/socket --text ':wq\r'
 
 # 3. Check screen
-./scripts/interminai output --socket "$SOCKET"
+./scripts/interminai output --socket /tmp/interminai-aBc123/socket
 
 # 4. Clean up (always!)
-./scripts/interminai stop --socket "$SOCKET"
+./scripts/interminai stop --socket /tmp/interminai-aBc123/socket
 ```
+
+Just read the socket path from the `start` output and use it directly - no need to parse into variables.
 
 ## Essential Commands
 
@@ -49,7 +54,7 @@ SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
 
 ## Key Best Practices
 
-1. **Auto-generated sockets**: Don't specify `--socket`, parse path from start output
+1. **Auto-generated sockets**: Don't specify `--socket` on start, read the path from output
 2. **Always clean up**: `stop` when done (auto-cleans socket)
 3. **Check output after each input** - don't blindly chain commands
 4. **Add delays**: `sleep 0.2` after input for processing
@@ -62,10 +67,10 @@ Default terminal size is 80x24. If not enough context fits on screen, use `--siz
 
 ```bash
 # Start with larger terminal
-./scripts/interminai start --socket "$SOCKET" --size 80x256 -- COMMAND
+./scripts/interminai start --size 80x256 -- COMMAND
 
-# Or resize during session
-./scripts/interminai resize --socket "$SOCKET" --size 80x256
+# Or resize during session (use socket path from start output)
+./scripts/interminai resize --socket /tmp/interminai-xxx/socket --size 80x256
 ```
 
 ## Vim Navigation Tips
@@ -107,10 +112,10 @@ Use `\n` only when you specifically want to add a newline to multiline input
 
 ```bash
 # Submit a command (use \r)
-interminai input --socket "$SOCKET" --text 'hello world\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'hello world\r'
 
 # Multiline input (use \n for newlines, \r to submit)
-interminai input --socket "$SOCKET" --text 'line1\nline2\nline3\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'line1\nline2\nline3\r'
 ```
 
 ## Menu prompts needing Enter
@@ -138,9 +143,9 @@ on screen, React's state machine may not be ready. A time delay is required.
 
 ```bash
 # Send text, wait, then send Enter
-interminai input --socket "$SOCKET" --text 'your prompt here'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'your prompt here'
 sleep 0.1
-interminai input --socket "$SOCKET" --text '\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text '\r'
 ```
 
 **Why this works**: The 100ms delay gives React's event loop time to process the
@@ -153,27 +158,29 @@ Use `debug` command to check if app is in raw mode (no ICRNL flag).
 It is possible to create a shell interminai session and pass commands to it.
 
 ```bash
-OUTPUT=$(GIT_EDITOR=vim ./scripts/interminai start -- bash)
-SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
+GIT_EDITOR=vim ./scripts/interminai start -- bash
+# Output shows: Socket: /tmp/interminai-xxx/socket
+
 sleep 0.5
-./scripts/interminai output --socket "$SOCKET"
-# ... send commands now ..
-./scripts/interminai input --socket "$SOCKET" --text 'vim foo.txt\r'
-./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
-./scripts/interminai input --socket "$SOCKET" --text 'vim bar.txt\r'
-./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
-./scripts/interminai input --socket "$SOCKET" --text 'exit\r'
-./scripts/interminai wait --socket "$SOCKET"
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+# ... send commands now, using the socket path from above ...
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'vim foo.txt\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text ':wq\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'vim bar.txt\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text ':wq\r'
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'exit\r'
+./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
 
 ## Git Example
 
 ```bash
-OUTPUT=$(GIT_EDITOR=vim ./scripts/interminai start -- git rebase -i HEAD~3)
-SOCKET=$(echo "$OUTPUT" | grep "^Socket:" | cut -d' ' -f2)
+GIT_EDITOR=vim ./scripts/interminai start -- git rebase -i HEAD~3
+# Output shows: Socket: /tmp/interminai-xxx/socket
+
 sleep 0.5
-./scripts/interminai output --socket "$SOCKET"
-# ... edit with input commands ...
-./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
-./scripts/interminai wait --socket "$SOCKET"
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+# ... edit with input commands, using the socket path from above ...
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text ':wq\r'
+./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
