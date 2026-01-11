@@ -1160,7 +1160,7 @@ fn main() -> Result<()> {
                 });
                 let output_response = send_request(&socket, output_request)?;
 
-                // Show generic guidance, then the prompt line where the cursor is
+                // Show generic guidance, then the cursor line and previous line for context
                 eprintln!("Type your secret or password and press Enter.");
                 if let Some(data) = output_response.data.as_ref() {
                     let cursor_row = data.get("cursor")
@@ -1168,7 +1168,17 @@ fn main() -> Result<()> {
                         .and_then(|r| r.as_u64())
                         .unwrap_or(0) as usize;
                     if let Some(screen) = data.get("screen").and_then(|s| s.as_str()) {
-                        if let Some(prompt_line) = screen.lines().nth(cursor_row) {
+                        let lines: Vec<&str> = screen.lines().collect();
+                        // Show previous line if it exists and is non-empty
+                        if cursor_row > 0 {
+                            if let Some(prev_line) = lines.get(cursor_row - 1) {
+                                if !prev_line.trim().is_empty() {
+                                    eprintln!("{}", prev_line);
+                                }
+                            }
+                        }
+                        // Show cursor line
+                        if let Some(prompt_line) = lines.get(cursor_row) {
                             if !prompt_line.trim().is_empty() {
                                 eprint!("{} ", prompt_line);
                                 std::io::stderr().flush().ok();
