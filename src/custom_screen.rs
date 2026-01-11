@@ -58,6 +58,8 @@ pub struct CustomScreen {
     debug_buffer: DebugBuffer,
     pending_responses: Vec<Vec<u8>>,
     parser: vte::Parser,
+    /// Delayed wrap mode: when true, the next printable character will wrap to next line first
+    pending_wrap: bool,
 }
 
 impl CustomScreen {
@@ -76,7 +78,27 @@ impl CustomScreen {
             debug_buffer: DebugBuffer::new(debug_buffer_size),
             pending_responses: Vec::new(),
             parser: vte::Parser::new(),
+            pending_wrap: false,
         }
+    }
+
+    /// Move cursor to specified row, canceling pending wrap
+    fn move_cursor_row(&mut self, row: usize) {
+        self.pending_wrap = false;
+        self.cursor_row = row.min(self.rows - 1);
+    }
+
+    /// Move cursor to specified column, canceling pending wrap
+    fn move_cursor_col(&mut self, col: usize) {
+        self.pending_wrap = false;
+        self.cursor_col = col.min(self.cols - 1);
+    }
+
+    /// Move cursor to specified position, canceling pending wrap
+    fn move_cursor(&mut self, row: usize, col: usize) {
+        self.pending_wrap = false;
+        self.cursor_row = row.min(self.rows - 1);
+        self.cursor_col = col.min(self.cols - 1);
     }
 
     fn to_ascii(&self) -> String {
@@ -152,21 +174,33 @@ impl TerminalEmulator for CustomScreen {
 impl Perform for CustomScreen {
     fn print(&mut self, c: char) {
         self.last_char = c;
+
+        // Handle delayed wrap: if pending_wrap is set, wrap now before printing
+        if self.pending_wrap {
+            self.pending_wrap = false;
+            self.cursor_col = 0;
+            self.cursor_row += 1;
+            if self.cursor_row >= self.rows {
+                self.scroll_up();
+                self.cursor_row = self.rows - 1;
+            }
+        }
+
         if self.cursor_row < self.rows && self.cursor_col < self.cols {
             self.cells[self.cursor_row][self.cursor_col] = c;
             self.cursor_col += 1;
+            // If we've reached the right edge, set pending_wrap instead of wrapping immediately
             if self.cursor_col >= self.cols {
-                self.cursor_col = 0;
-                self.cursor_row += 1;
-                if self.cursor_row >= self.rows {
-                    self.scroll_up();
-                    self.cursor_row = self.rows - 1;
-                }
+                self.cursor_col = self.cols - 1;  // Keep cursor at last column
+                self.pending_wrap = true;
             }
         }
     }
 
     fn execute(&mut self, byte: u8) {
+        // Control characters cancel pending wrap
+        self.pending_wrap = false;
+
         match byte {
             b'\n' => {
                 self.cursor_row += 1;
@@ -204,32 +238,31 @@ impl Perform for CustomScreen {
             'H' | 'f' => {
                 let row = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
                 let col = params.iter().nth(1).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_row = row.min(self.rows - 1);
-                self.cursor_col = col.min(self.cols - 1);
+                self.move_cursor(row, col);
             }
             'A' => {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_row = self.cursor_row.saturating_sub(n);
+                self.move_cursor_row(self.cursor_row.saturating_sub(n));
             }
             'B' => {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_row = (self.cursor_row + n).min(self.rows - 1);
+                self.move_cursor_row(self.cursor_row + n);
             }
             'C' => {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_col = (self.cursor_col + n).min(self.cols - 1);
+                self.move_cursor_col(self.cursor_col + n);
             }
             'D' => {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_col = self.cursor_col.saturating_sub(n);
+                self.move_cursor_col(self.cursor_col.saturating_sub(n));
             }
             'G' => {
                 let col = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_col = col.min(self.cols - 1);
+                self.move_cursor_col(col);
             }
             'd' => {
                 let row = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_row = row.min(self.rows - 1);
+                self.move_cursor_row(row);
             }
             'J' => {
                 let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
@@ -250,8 +283,7 @@ impl Perform for CustomScreen {
                                 self.cells[row][col] = ' ';
                             }
                         }
-                        self.cursor_row = 0;
-                        self.cursor_col = 0;
+                        self.move_cursor(0, 0);
                     }
                     _ => {}
                 }
@@ -339,17 +371,19 @@ impl Perform for CustomScreen {
             }
             'I' => {
                 let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
+                let mut col = self.cursor_col;
                 for _ in 0..n {
-                    self.cursor_col = ((self.cursor_col / 8) + 1) * 8;
-                    if self.cursor_col >= self.cols {
-                        self.cursor_col = self.cols - 1;
+                    col = ((col / 8) + 1) * 8;
+                    if col >= self.cols {
+                        col = self.cols - 1;
                         break;
                     }
                 }
+                self.move_cursor_col(col);
             }
             'Z' => {
                 if self.cursor_col > 0 {
-                    self.cursor_col = ((self.cursor_col - 1) / 8) * 8;
+                    self.move_cursor_col(((self.cursor_col - 1) / 8) * 8);
                 }
             }
             'b' => {
