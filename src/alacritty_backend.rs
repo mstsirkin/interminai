@@ -5,6 +5,7 @@
 use std::sync::{Arc, Mutex};
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::vte::ansi;
 use alacritty_terminal::index::{Column, Line};
@@ -96,7 +97,15 @@ impl TerminalEmulator for AlacrittyTerminal {
         for line_idx in 0..grid.screen_lines() {
             let line = &grid[Line(line_idx as i32)];
             let line_str: String = (0..grid.columns())
-                .map(|col| line[Column(col)].c)
+                .filter_map(|col| {
+                    let cell = &line[Column(col)];
+                    // Skip wide char spacer cells (placeholder after wide char)
+                    if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                        None
+                    } else {
+                        Some(cell.c)
+                    }
+                })
                 .collect();
             result.push_str(line_str.trim_end());
             result.push('\n');
