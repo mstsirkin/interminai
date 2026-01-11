@@ -381,14 +381,98 @@ class Screen:
         return '\n'.join(''.join(row) for row in self.cells)
 
 
+class ExtendedPyteScreen(pyte.Screen):
+    """Extended pyte Screen with additional CSI sequence methods"""
+
+    def __init__(self, columns, lines):
+        super().__init__(columns, lines)
+        self._last_char = ' '
+        self._pending_responses = []
+
+    def write_process_input(self, data):
+        """Capture responses (DSR, DA1, etc.) that need to be sent back to PTY"""
+        self._pending_responses.append(data.encode('utf-8'))
+
+    def report_device_status(self, mode=0, **kwargs):
+        """Override to clamp cursor position for DSR 6 (cursor position report)"""
+        if mode == 5:
+            # Device status - just report OK
+            self.write_process_input("\x1b[0n")
+        elif mode == 6:
+            # Cursor position - clamp to valid range
+            row = min(self.cursor.y, self.lines - 1) + 1  # 1-based
+            col = min(self.cursor.x, self.columns - 1) + 1  # 1-based
+            self.write_process_input(f"\x1b[{row};{col}R")
+
+    def draw(self, data):
+        """Override to track last printed character for REP"""
+        if data:
+            self._last_char = data[-1]
+        super().draw(data)
+
+    def cursor_forward_tab(self, count=1):
+        """CSI I - Cursor Horizontal Tab (CHT)"""
+        for _ in range(count or 1):
+            new_col = ((self.cursor.x // 8) + 1) * 8
+            if new_col >= self.columns:
+                new_col = self.columns - 1
+            self.cursor.x = new_col
+
+    def cursor_back_tab(self, count=1):
+        """CSI Z - Cursor Backward Tab (CBT)"""
+        for _ in range(count or 1):
+            if self.cursor.x > 0:
+                self.cursor.x = ((self.cursor.x - 1) // 8) * 8
+
+    def scroll_up(self, count=1):
+        """CSI S - Scroll Up (SU) - scroll content up, new blank lines at bottom"""
+        from collections import defaultdict
+        for _ in range(count or 1):
+            # Shift all rows up by 1
+            new_buffer = defaultdict(lambda: defaultdict(lambda: self.default_char))
+            for row in range(self.lines - 1):
+                new_buffer[row] = self.buffer[row + 1]
+            new_buffer[self.lines - 1] = defaultdict(lambda: self.default_char)
+            self.buffer = new_buffer
+
+    def scroll_down(self, count=1):
+        """CSI T - Scroll Down (SD) - scroll content down, new blank lines at top"""
+        from collections import defaultdict
+        for _ in range(count or 1):
+            # Shift all rows down by 1
+            new_buffer = defaultdict(lambda: defaultdict(lambda: self.default_char))
+            for row in range(1, self.lines):
+                new_buffer[row] = self.buffer[row - 1]
+            new_buffer[0] = defaultdict(lambda: self.default_char)
+            self.buffer = new_buffer
+
+    def repeat_character(self, count=1):
+        """CSI b - Repeat (REP) last printed character"""
+        for _ in range(count or 1):
+            super().draw(self._last_char)
+
+
+class ExtendedPyteStream(pyte.Stream):
+    """Extended pyte Stream with additional CSI handlers"""
+
+    # Class-level CSI extensions (method name strings)
+    csi = dict(pyte.Stream.csi, **{
+        'I': 'cursor_forward_tab',
+        'Z': 'cursor_back_tab',
+        'S': 'scroll_up',
+        'T': 'scroll_down',
+        'b': 'repeat_character',
+    })
+
+
 class PyteScreen:
     """Terminal emulator using pyte library"""
 
     def __init__(self, rows, cols):
         self.rows = rows
         self.cols = cols
-        self._screen = pyte.Screen(cols, rows)
-        self._stream = pyte.Stream(self._screen)
+        self._screen = ExtendedPyteScreen(cols, rows)
+        self._stream = ExtendedPyteStream(self._screen)
         # Pyte handles most sequences, so debug buffer will be mostly empty
         self.debug_buffer = DebugBuffer()
         self.pending_responses = []
@@ -403,8 +487,12 @@ class PyteScreen:
         except Exception:
             pass
         # Update cursor position from pyte
-        self.cursor_row = self._screen.cursor.y
-        self.cursor_col = self._screen.cursor.x
+        # Clamp to valid range (pyte may report cursor beyond edge for delayed wrap)
+        self.cursor_row = min(self._screen.cursor.y, self.rows - 1)
+        self.cursor_col = min(self._screen.cursor.x, self.cols - 1)
+        # Collect any pending responses (DSR, DA1, etc.)
+        self.pending_responses.extend(self._screen._pending_responses)
+        self._screen._pending_responses.clear()
 
     def render(self):
         """Render the screen as a string"""
