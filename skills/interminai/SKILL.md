@@ -1,6 +1,6 @@
 ---
 name: interminai
-description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, and TUI apps. Even another CLI LLM. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
+description: Control interactive terminal applications like vim, git rebase -i, git add -i, git add -p, apt, rclone config, sudo, and TUI apps. Even another CLI LLM. Use when you need to interact with applications that require keyboard input, show prompts, menus, or have full-screen interfaces. Also use when commands fail or hang with errors like "Input is not a terminal" or "Output is not a terminal". Better than application specific hacks such as GIT_SEQUENCE_EDITOR or bypassing interactivity through file use.
 allowed-tools: Shell
 license: See LICENSE file
 metadata:
