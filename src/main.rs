@@ -4,6 +4,10 @@
 //
 // A PTY-based tool for interacting with terminal applications (Rust version).
 
+mod terminal;
+mod custom_screen;
+mod alacritty_backend;
+
 use clap::{Parser as ClapParser, Subcommand};
 use anyhow::{Result, Context, bail};
 use std::process::{Command as ProcessCommand};
@@ -23,8 +27,18 @@ use nix::sys::termios::{tcgetattr, LocalFlags, InputFlags, OutputFlags, SpecialC
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::fs;
 use std::path::Path;
-use vte::Perform;
 
+use terminal::TerminalEmulator;
+
+/// Terminal emulator backend
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum Emulator {
+    /// Alacritty terminal (full xterm-256color support)
+    #[default]
+    Alacritty,
+    /// Custom terminal (basic ANSI support)
+    Custom,
+}
 
 #[derive(ClapParser)]
 #[command(name = "interminai")]
@@ -45,6 +59,10 @@ enum Commands {
         /// Terminal size (e.g., 80x24)
         #[arg(long, default_value = "80x24")]
         size: String,
+
+        /// Terminal emulator backend (alacritty or custom)
+        #[arg(long, value_enum, default_value = "alacritty")]
+        emulator: Emulator,
 
         /// Run in foreground (for debugging/testing, default: daemon mode)
         #[arg(long)]
@@ -173,428 +191,18 @@ impl Response {
     }
 }
 
-// Simple terminal emulator
-/// Entry in the unhandled escape sequence debug buffer
-#[derive(Clone, serde::Serialize)]
-struct UnhandledSequence {
-    sequence: String,
-    raw_hex: String,
-}
-
-/// Ring buffer for tracking unhandled escape sequences
-struct DebugBuffer {
-    entries: Vec<UnhandledSequence>,
-    capacity: usize,
-    dropped: usize,
-}
-
-impl DebugBuffer {
-    fn new(capacity: usize) -> Self {
-        DebugBuffer {
-            entries: Vec::with_capacity(capacity),
-            capacity,
-            dropped: 0,
-        }
-    }
-
-    fn push(&mut self, sequence: String, raw_bytes: &[u8]) {
-        let raw_hex = raw_bytes.iter().map(|b| format!("{:02x}", b)).collect();
-        let entry = UnhandledSequence { sequence, raw_hex };
-
-        if self.entries.len() >= self.capacity {
-            self.entries.remove(0);
-            self.dropped += 1;
-        }
-        self.entries.push(entry);
-    }
-
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.dropped = 0;
-    }
-
-    fn get_entries(&self) -> &[UnhandledSequence] {
-        &self.entries
-    }
-
-    fn get_dropped(&self) -> usize {
-        self.dropped
-    }
-}
-
-struct Screen {
-    rows: usize,
-    cols: usize,
-    cells: Vec<Vec<char>>,
-    cursor_row: usize,
-    cursor_col: usize,
-    last_char: char,
-    debug_buffer: DebugBuffer,
-    /// Pending responses to be sent back to the PTY (e.g., for DSR cursor position query)
-    pending_responses: Vec<Vec<u8>>,
-}
-
-impl Screen {
-    fn new(rows: usize, cols: usize) -> Self {
-        Self::with_debug_buffer(rows, cols, 10)
-    }
-
-    fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
-        Screen {
-            rows,
-            cols,
-            cells: vec![vec![' '; cols]; rows],
-            cursor_row: 0,
-            cursor_col: 0,
-            last_char: ' ',
-            debug_buffer: DebugBuffer::new(debug_buffer_size),
-            pending_responses: Vec::new(),
-        }
-    }
-
-    fn to_ascii(&self) -> String {
-        let mut result = String::new();
-        for row in &self.cells {
-            let line: String = row.iter().collect();
-            result.push_str(&line.trim_end());
-            result.push('\n');
-        }
-        result
-    }
-
-    fn scroll_up(&mut self) {
-        // Remove the top row and add a blank row at the bottom
-        self.cells.remove(0);
-        self.cells.push(vec![' '; self.cols]);
-    }
-}
-
-impl Perform for Screen {
-    fn print(&mut self, c: char) {
-        self.last_char = c;
-        if self.cursor_row < self.rows && self.cursor_col < self.cols {
-            self.cells[self.cursor_row][self.cursor_col] = c;
-            self.cursor_col += 1;
-            if self.cursor_col >= self.cols {
-                self.cursor_col = 0;
-                self.cursor_row += 1;
-                if self.cursor_row >= self.rows {
-                    self.scroll_up();
-                    self.cursor_row = self.rows - 1;
-                }
-            }
-        }
-    }
-
-    fn execute(&mut self, byte: u8) {
-        match byte {
-            b'\n' => {
-                self.cursor_row += 1;
-                if self.cursor_row >= self.rows {
-                    self.scroll_up();
-                    self.cursor_row = self.rows - 1;
-                }
-                self.cursor_col = 0;
-            }
-            b'\r' => {
-                self.cursor_col = 0;
-            }
-            b'\t' => {
-                self.cursor_col = ((self.cursor_col / 8) + 1) * 8;
-                if self.cursor_col >= self.cols {
-                    self.cursor_col = self.cols - 1;
-                }
-            }
-            b'\x08' => {
-                if self.cursor_col > 0 {
-                    self.cursor_col -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn hook(&mut self, _: &vte::Params, _: &[u8], _: bool, _: char) {}
-    fn put(&mut self, _: u8) {}
-    fn unhook(&mut self) {}
-    fn osc_dispatch(&mut self, _: &[&[u8]], _: bool) {}
-    fn csi_dispatch(&mut self, params: &vte::Params, intermediates: &[u8], _ignore: bool, action: char) {
-        match action {
-            'H' | 'f' => {
-                // Cursor position
-                let row = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                let col = params.iter().nth(1).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_row = row.min(self.rows - 1);
-                self.cursor_col = col.min(self.cols - 1);
-            }
-            'A' => {
-                // Cursor up
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_row = self.cursor_row.saturating_sub(n);
-            }
-            'B' => {
-                // Cursor down
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_row = (self.cursor_row + n).min(self.rows - 1);
-            }
-            'C' => {
-                // Cursor forward
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_col = (self.cursor_col + n).min(self.cols - 1);
-            }
-            'D' => {
-                // Cursor back
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                self.cursor_col = self.cursor_col.saturating_sub(n);
-            }
-            'G' => {
-                // Cursor horizontal absolute (hpa) - move to column N
-                let col = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_col = col.min(self.cols - 1);
-            }
-            'd' => {
-                // Cursor vertical absolute (vpa) - move to row N
-                let row = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).saturating_sub(1) as usize;
-                self.cursor_row = row.min(self.rows - 1);
-            }
-            'J' => {
-                // Erase display
-                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                match mode {
-                    0 => {
-                        // Clear from cursor to end
-                        for col in self.cursor_col..self.cols {
-                            self.cells[self.cursor_row][col] = ' ';
-                        }
-                        for row in (self.cursor_row + 1)..self.rows {
-                            for col in 0..self.cols {
-                                self.cells[row][col] = ' ';
-                            }
-                        }
-                    }
-                    2 => {
-                        // Clear entire screen
-                        for row in 0..self.rows {
-                            for col in 0..self.cols {
-                                self.cells[row][col] = ' ';
-                            }
-                        }
-                        self.cursor_row = 0;
-                        self.cursor_col = 0;
-                    }
-                    _ => {}
-                }
-            }
-            'K' => {
-                // Erase line
-                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                match mode {
-                    0 => {
-                        // Clear from cursor to end of line
-                        for col in self.cursor_col..self.cols {
-                            self.cells[self.cursor_row][col] = ' ';
-                        }
-                    }
-                    1 => {
-                        // Clear from beginning of line to cursor (el1)
-                        for col in 0..=self.cursor_col {
-                            self.cells[self.cursor_row][col] = ' ';
-                        }
-                    }
-                    2 => {
-                        // Clear entire line
-                        for col in 0..self.cols {
-                            self.cells[self.cursor_row][col] = ' ';
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            'M' => {
-                // Delete Line (DL) - used by vim when deleting lines
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for _ in 0..n {
-                    if self.cursor_row < self.rows {
-                        // Remove current line
-                        self.cells.remove(self.cursor_row);
-                        // Add blank line at bottom
-                        self.cells.push(vec![' '; self.cols]);
-                    }
-                }
-            }
-            'L' => {
-                // Insert Line (IL) - used by vim when inserting lines
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for _ in 0..n {
-                    if self.cursor_row < self.rows {
-                        // Remove bottom line
-                        self.cells.pop();
-                        // Insert blank line at cursor position
-                        self.cells.insert(self.cursor_row, vec![' '; self.cols]);
-                    }
-                }
-            }
-            'P' => {
-                // Delete Character (dch) - delete N chars, shift rest left
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                let row = self.cursor_row;
-                for _ in 0..n {
-                    if self.cursor_col < self.cols {
-                        self.cells[row].remove(self.cursor_col);
-                        self.cells[row].push(' ');
-                    }
-                }
-            }
-            '@' => {
-                // Insert Character (ich) - insert N blank chars, shift rest right
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                let row = self.cursor_row;
-                for _ in 0..n {
-                    if self.cursor_col < self.cols {
-                        self.cells[row].pop();
-                        self.cells[row].insert(self.cursor_col, ' ');
-                    }
-                }
-            }
-            'X' => {
-                // Erase Character (ech) - erase N chars (replace with spaces)
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for i in 0..n {
-                    let col = self.cursor_col + i;
-                    if col < self.cols {
-                        self.cells[self.cursor_row][col] = ' ';
-                    }
-                }
-            }
-            'S' => {
-                // Scroll Up (SU) - scroll content up N lines
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for _ in 0..n {
-                    self.scroll_up();
-                }
-            }
-            'T' => {
-                // Scroll Down (SD) - scroll content down N lines
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for _ in 0..n {
-                    self.cells.pop();
-                    self.cells.insert(0, vec![' '; self.cols]);
-                }
-            }
-            'I' => {
-                // Cursor Horizontal Tab (cht) - move forward to next tab stop N times
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                for _ in 0..n {
-                    self.cursor_col = ((self.cursor_col / 8) + 1) * 8;
-                    if self.cursor_col >= self.cols {
-                        self.cursor_col = self.cols - 1;
-                        break;
-                    }
-                }
-            }
-            'Z' => {
-                // Back Tab (cbt) - move to previous tab stop
-                if self.cursor_col > 0 {
-                    self.cursor_col = ((self.cursor_col - 1) / 8) * 8;
-                }
-            }
-            'b' => {
-                // Repeat (rep) - repeat last printed character N times
-                let n = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(1).max(1) as usize;
-                let c = self.last_char;
-                for _ in 0..n {
-                    self.print(c);
-                }
-            }
-            'g' => {
-                // Clear Tab Stop (tbc) - mode 3 clears all, mode 0 clears current
-                // We use fixed 8-column tabs, so ignore
-            }
-            'm' => {
-                // SGR - ignore (colors/attributes) - intentionally not logged to debug buffer
-            }
-            'n' => {
-                // Device Status Report (DSR)
-                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                match mode {
-                    5 => {
-                        // Report device status: ESC [ 0 n (ready, no malfunction)
-                        self.pending_responses.push(b"\x1b[0n".to_vec());
-                    }
-                    6 => {
-                        // Report cursor position: ESC [ row ; col R (1-based)
-                        let response = format!("\x1b[{};{}R", self.cursor_row + 1, self.cursor_col + 1);
-                        self.pending_responses.push(response.into_bytes());
-                    }
-                    _ => {}
-                }
-            }
-            'c' => {
-                // Primary Device Attributes (DA1)
-                // Programs query terminal capabilities with ESC[c or ESC[0c
-                // Respond as VT100 with AVO: ESC[?1;2c
-                let mode = params.iter().nth(0).and_then(|p| p.first()).copied().unwrap_or(0);
-                if mode == 0 {
-                    self.pending_responses.push(b"\x1b[?1;2c".to_vec());
-                }
-            }
-            _ => {
-                // Record unhandled CSI sequence
-                let mut seq = String::from("\\e[");
-                for intermediate in intermediates {
-                    seq.push(*intermediate as char);
-                }
-                let param_strs: Vec<String> = params.iter()
-                    .map(|p| p.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(":"))
-                    .collect();
-                seq.push_str(&param_strs.join(";"));
-                seq.push(action);
-
-                // Reconstruct raw bytes
-                let mut raw = vec![0x1b, b'['];
-                raw.extend_from_slice(intermediates);
-                for (i, p) in params.iter().enumerate() {
-                    if i > 0 { raw.push(b';'); }
-                    for (j, v) in p.iter().enumerate() {
-                        if j > 0 { raw.push(b':'); }
-                        raw.extend_from_slice(v.to_string().as_bytes());
-                    }
-                }
-                raw.push(action as u8);
-
-                self.debug_buffer.push(seq, &raw);
-            }
-        }
-    }
-
-    fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
-        match byte {
-            b'H' => {
-                // Set Tab Stop (hts) - we use fixed 8-column tabs, ignore
-            }
-            _ => {
-                // Record unhandled ESC sequence
-                let mut seq = String::from("\\e");
-                for intermediate in intermediates {
-                    seq.push(*intermediate as char);
-                }
-                seq.push(byte as char);
-
-                let mut raw = vec![0x1b];
-                raw.extend_from_slice(intermediates);
-                raw.push(byte);
-
-                self.debug_buffer.push(seq, &raw);
-            }
-        }
+// Terminal emulator factory
+fn create_terminal(rows: usize, cols: usize, emulator: Emulator) -> Box<dyn TerminalEmulator> {
+    match emulator {
+        Emulator::Alacritty => Box::new(alacritty_backend::AlacrittyTerminal::new(rows, cols)),
+        Emulator::Custom => Box::new(custom_screen::CustomScreen::new(rows, cols)),
     }
 }
 
 struct DaemonState {
     master_fd: OwnedFd,
     child_pid: Pid,
-    screen: Screen,
-    parser: vte::Parser,
+    terminal: Box<dyn TerminalEmulator>,
     exit_code: Option<i32>,
     socket_path: String,
     socket_was_auto_generated: bool,
@@ -624,16 +232,14 @@ impl DaemonState {
             match nix::unistd::read(self.master_fd.as_raw_fd(), &mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    for byte in &buf[..n] {
-                        self.parser.advance(&mut self.screen, *byte);
-                    }
+                    self.terminal.process_bytes(&buf[..n]);
                 }
                 Err(_) => break,
             }
         }
 
         // Send any pending responses back to the PTY (e.g., cursor position reports)
-        for response in self.screen.pending_responses.drain(..) {
+        for response in self.terminal.take_pending_responses() {
             let _ = nix::unistd::write(self.master_fd.as_raw_fd(), &response);
         }
     }
@@ -733,7 +339,7 @@ fn auto_generate_socket_path() -> Result<String> {
     Ok(socket_path)
 }
 
-fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<String>) -> Result<()> {
+fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: bool, command: Vec<String>) -> Result<()> {
     let socket_was_auto_generated = socket.is_none();
     let socket_path = match socket {
         Some(path) => path,
@@ -748,7 +354,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, command);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, command);
     }
 
     // Double-fork to properly daemonize
@@ -811,7 +417,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, command) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -830,7 +436,7 @@ fn cmd_start(socket: Option<String>, size: String, daemon: bool, command: Vec<St
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, command: Vec<String>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -865,8 +471,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             let state = Arc::new(Mutex::new(DaemonState {
                 master_fd: pty.master,
                 child_pid: Pid::from_raw(child),
-                screen: Screen::new(rows as usize, cols as usize),
-                parser: vte::Parser::new(),
+                terminal: create_terminal(rows as usize, cols as usize, emulator),
                 exit_code: None,
                 socket_path: socket_path.clone(),
                 socket_was_auto_generated,
@@ -963,12 +568,13 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             // Drop slave after dup2 (automatically closes it)
             drop(pty.slave);
 
-            // Set TERM=ansi to force applications to use basic escape sequences that our
-            // simple terminal emulator can handle. The "ansi" terminfo doesn't advertise
-            // scroll regions (csr) which we don't support, but does have insert/delete
-            // line (il1/dl1) which we do support. With TERM set to xterm-256color or
-            // similar, vim uses advanced features causing screen display to desync.
-            std::env::set_var("TERM", "ansi");
+            // Set TERM based on the terminal emulator backend
+            // alacritty supports full xterm-256color capabilities
+            // custom uses basic ANSI escape sequences
+            match emulator {
+                Emulator::Alacritty => std::env::set_var("TERM", "xterm-256color"),
+                Emulator::Custom => std::env::set_var("TERM", "ansi"),
+            }
 
             // Exec command
             let program = &command[0];
@@ -1049,17 +655,19 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     let mut state = state.lock().unwrap();
     state.read_pty_output();
 
-    let screen_text = state.screen.to_ascii();
+    let screen_text = state.terminal.get_screen_content();
+    let (cursor_row, cursor_col) = state.terminal.cursor_position();
+    let (rows, cols) = state.terminal.dimensions();
 
     let data = serde_json::json!({
         "screen": screen_text,
         "cursor": {
-            "row": state.screen.cursor_row,
-            "col": state.screen.cursor_col
+            "row": cursor_row,
+            "col": cursor_col
         },
         "size": {
-            "rows": state.screen.rows,
-            "cols": state.screen.cols
+            "rows": rows,
+            "cols": cols
         }
     });
 
@@ -1185,21 +793,8 @@ fn handle_resize(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         return Response::error("Failed to resize terminal".to_string());
     }
 
-    // Update screen buffer dimensions
-    // Create new screen with new dimensions
-    let mut new_screen = Screen::new(rows as usize, cols as usize);
-
-    // Copy old content to new screen (preserve as much as possible)
-    let old_screen = &state.screen;
-    for row in 0..old_screen.rows.min(new_screen.rows) {
-        for col in 0..old_screen.cols.min(new_screen.cols) {
-            new_screen.cells[row][col] = old_screen.cells[row][col];
-        }
-    }
-    new_screen.cursor_row = old_screen.cursor_row.min(new_screen.rows - 1);
-    new_screen.cursor_col = old_screen.cursor_col.min(new_screen.cols - 1);
-
-    state.screen = new_screen;
+    // Update terminal emulator dimensions
+    state.terminal.resize(rows as usize, cols as usize);
 
     Response::ok(serde_json::json!({
         "cols": cols,
@@ -1212,11 +807,11 @@ fn handle_debug(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 
     let mut state = state.lock().unwrap();
 
-    let entries: Vec<_> = state.screen.debug_buffer.get_entries().to_vec();
-    let dropped = state.screen.debug_buffer.get_dropped();
+    let entries = state.terminal.get_debug_entries();
+    let dropped = state.terminal.get_debug_dropped();
 
     if clear {
-        state.screen.debug_buffer.clear();
+        state.terminal.clear_debug_buffer();
     }
 
     // Get terminal mode info from PTY
@@ -1472,8 +1067,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { socket, size, no_daemon, command } => {
-            cmd_start(socket, size, !no_daemon, command)?;
+        Commands::Start { socket, size, emulator, no_daemon, command } => {
+            cmd_start(socket, size, emulator, !no_daemon, command)?;
         }
         Commands::Input { socket, text } => {
             // Use --text if provided, otherwise read from stdin

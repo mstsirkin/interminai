@@ -15,6 +15,7 @@ nix = { version = "0.27", features = ["term", "process", "signal", "ioctl", "fs"
 vte = "0.13"
 fork = "0.6.0"
 rustix = { version = "1.1.2", features = ["termios", "net", "process"] }
+alacritty_terminal = "0.25"
 
 [dev-dependencies]
 tempfile = "3.12"
