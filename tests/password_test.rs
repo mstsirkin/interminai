@@ -138,7 +138,7 @@ fn test_password_with_interminai_pty() {
     let wrapper = DaemonHandle::spawn_with_socket(&env2.socket(), &["bash", "-c", &input_cmd]);
     thread::sleep(Duration::from_millis(300));
 
-    // Check wrapper shows the prompt
+    // Check wrapper shows the generic guidance AND the actual application prompt
     let output = Command::new(interminai_bin())
         .arg("output")
         .arg("--socket")
@@ -147,8 +147,10 @@ fn test_password_with_interminai_pty() {
         .expect("Failed to get wrapper output");
 
     let screen = String::from_utf8_lossy(&output.stdout);
-    assert!(screen.contains("Type your password"),
-            "Wrapper should show password prompt: {}", screen);
+    assert!(screen.contains("Type your secret or password"),
+            "Wrapper should show generic guidance: {}", screen);
+    assert!(screen.contains("Password:"),
+            "Wrapper should show the application's password prompt: {}", screen);
 
     // Send the password to the wrapper (which forwards to the original session)
     Command::new(interminai_bin())
