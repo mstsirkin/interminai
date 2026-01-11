@@ -88,6 +88,8 @@ class Screen:
         self.pending_responses = []
         # Delayed wrap mode: when true, the next printable character will wrap to next line first
         self.pending_wrap = False
+        # Activity flag: set to True when output is received, cleared by wait --activity
+        self.activity = False
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -284,6 +286,8 @@ class Screen:
 
     def process_output(self, data):
         """Process output data with basic escape sequence parsing"""
+        if data:
+            self.activity = True
         i = 0
         while i < len(data):
             byte = data[i]
@@ -478,9 +482,13 @@ class PyteScreen:
         self.pending_responses = []
         self.cursor_row = 0
         self.cursor_col = 0
+        # Activity flag: set to True when output is received, cleared by wait --activity
+        self.activity = False
 
     def process_output(self, data):
         """Process output data through pyte"""
+        if data:
+            self.activity = True
         try:
             text = data.decode('utf-8', errors='replace')
             self._stream.feed(text)
