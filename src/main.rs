@@ -33,10 +33,10 @@ use terminal::TerminalEmulator;
 /// Terminal emulator backend
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
 pub enum Emulator {
-    /// Alacritty terminal (full xterm-256color support)
+    /// Full xterm-256color terminal emulation (alacritty backend)
     #[default]
-    Alacritty,
-    /// Custom terminal (basic ANSI support)
+    Xterm,
+    /// Basic ANSI terminal emulation (custom backend)
     Custom,
 }
 
@@ -60,8 +60,8 @@ enum Commands {
         #[arg(long, default_value = "80x24")]
         size: String,
 
-        /// Terminal emulator backend (alacritty or custom)
-        #[arg(long, value_enum, default_value = "alacritty")]
+        /// Terminal emulator backend (xterm or custom)
+        #[arg(long, value_enum, default_value = "xterm")]
         emulator: Emulator,
 
         /// Run in foreground (for debugging/testing, default: daemon mode)
@@ -194,7 +194,7 @@ impl Response {
 // Terminal emulator factory
 fn create_terminal(rows: usize, cols: usize, emulator: Emulator) -> Box<dyn TerminalEmulator> {
     match emulator {
-        Emulator::Alacritty => Box::new(alacritty_backend::AlacrittyTerminal::new(rows, cols)),
+        Emulator::Xterm => Box::new(alacritty_backend::AlacrittyTerminal::new(rows, cols)),
         Emulator::Custom => Box::new(custom_screen::CustomScreen::new(rows, cols)),
     }
 }
@@ -569,10 +569,10 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             drop(pty.slave);
 
             // Set TERM based on the terminal emulator backend
-            // alacritty supports full xterm-256color capabilities
+            // xterm (alacritty) supports full xterm-256color capabilities
             // custom uses basic ANSI escape sequences
             match emulator {
-                Emulator::Alacritty => std::env::set_var("TERM", "xterm-256color"),
+                Emulator::Xterm => std::env::set_var("TERM", "xterm-256color"),
                 Emulator::Custom => std::env::set_var("TERM", "ansi"),
             }
 
