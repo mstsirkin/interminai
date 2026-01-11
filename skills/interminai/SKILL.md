@@ -210,6 +210,5 @@ echo "Password required. Please run: interminai input --socket /tmp/interminai-x
 ```
 
 The `--password` flag:
-- Prompts "Type your password and press Enter: "
+- Prompts user to type password and press Enter to submit (sent as `\r`)
 - Reads input with echo disabled (password not visible)
-- Automatically appends `\r` (Enter) after input

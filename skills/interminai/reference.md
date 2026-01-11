@@ -50,7 +50,7 @@ printf ':wq\n' | interminai input --socket PATH
 
 **Options:**
 - `--text TEXT` - Input text with escape sequences (preferred, alternative to stdin)
-- `--password` - Read password with echo disabled (appends Enter automatically)
+- `--password` - Prompt user to type password and press Enter (sent as `\r`)
 
 ### Using --text (Recommended)
 
