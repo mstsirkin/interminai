@@ -23,6 +23,13 @@ from pathlib import Path
 import tempfile
 import threading
 
+# Try to import pyte for better terminal emulation
+try:
+    import pyte
+    PYTE_AVAILABLE = True
+except ImportError:
+    PYTE_AVAILABLE = False
+
 class DebugBuffer:
     """Ring buffer for unhandled escape sequences"""
 
@@ -345,14 +352,48 @@ class Screen:
         return '\n'.join(''.join(row) for row in self.cells)
 
 
+class PyteScreen:
+    """Terminal emulator using pyte library"""
+
+    def __init__(self, rows, cols):
+        self.rows = rows
+        self.cols = cols
+        self._screen = pyte.Screen(cols, rows)
+        self._stream = pyte.Stream(self._screen)
+        # Pyte handles most sequences, so debug buffer will be mostly empty
+        self.debug_buffer = DebugBuffer()
+        self.pending_responses = []
+        self.cursor_row = 0
+        self.cursor_col = 0
+
+    def process_output(self, data):
+        """Process output data through pyte"""
+        try:
+            text = data.decode('utf-8', errors='replace')
+            self._stream.feed(text)
+        except Exception:
+            pass
+        # Update cursor position from pyte
+        self.cursor_row = self._screen.cursor.y
+        self.cursor_col = self._screen.cursor.x
+
+    def render(self):
+        """Render the screen as a string"""
+        return '\n'.join(self._screen.display)
+
+
 class DaemonState:
     """State for the daemon process"""
 
-    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated):
+    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator='xterm'):
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
-        self.screen = Screen(rows, cols)
+        # Select terminal emulator
+        if emulator == 'xterm' and PYTE_AVAILABLE:
+            self.screen = PyteScreen(rows, cols)
+        else:
+            self.screen = Screen(rows, cols)
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
@@ -431,7 +472,7 @@ def cmd_start(args):
         print(f"PID: {os.getpid()}")
         print(f"Auto-generated: {socket_was_auto_generated}")
         sys.stdout.flush()
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator)
     else:
         # Daemonize (double fork)
         pid = os.fork()
@@ -469,10 +510,10 @@ def cmd_start(args):
             os.close(devnull)
 
         # Run daemon
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator)
 
 
-def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
+def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emulator='xterm'):
     """Run the daemon process"""
     # Ignore SIGPIPE in daemon - we handle socket errors via exceptions
     # (main() sets SIGPIPE to SIG_DFL for client commands that pipe to head/less)
@@ -505,11 +546,13 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
         if slave_fd > 2:
             os.close(slave_fd)
 
-        # Set TERM=ansi to force apps to use basic escape sequences that our
-        # terminal emulator can handle. The "ansi" terminfo doesn't advertise
-        # scroll regions (csr) which we don't support, but does have insert/delete
-        # line (il1/dl1) which we do support.
-        os.environ['TERM'] = 'ansi'
+        # Set TERM based on terminal emulator
+        # xterm (pyte) supports full xterm-256color capabilities
+        # custom uses basic ANSI escape sequences
+        if emulator == 'xterm' and PYTE_AVAILABLE:
+            os.environ['TERM'] = 'xterm-256color'
+        else:
+            os.environ['TERM'] = 'ansi'
 
         # Execute command
         os.execvp(command[0], command)
@@ -519,7 +562,7 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated):
     os.close(slave_fd)
 
     # Create state
-    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated)
+    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator)
 
     # Create Unix socket
     if os.path.exists(socket_path):
@@ -1044,6 +1087,15 @@ def main():
     start_parser = subparsers.add_parser('start', help='Start a program')
     start_parser.add_argument('--socket', help='Socket path')
     start_parser.add_argument('--size', default='80x24', help='Terminal size (COLSxROWS)')
+    # Emulator choices: xterm (if pyte available) or custom
+    if PYTE_AVAILABLE:
+        emulator_choices = ['xterm', 'custom']
+        emulator_default = 'xterm'
+    else:
+        emulator_choices = ['custom']
+        emulator_default = 'custom'
+    start_parser.add_argument('--emulator', choices=emulator_choices, default=emulator_default,
+                              help='Terminal emulator backend')
     start_parser.add_argument('--no-daemon', action='store_true', help='Run in foreground')
     start_parser.add_argument('command', nargs='+', help='Command to run')
     start_parser.set_defaults(func=cmd_start)
