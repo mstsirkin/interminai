@@ -123,11 +123,15 @@ enum Commands {
         socket: String,
     },
 
-    /// Wait until session exits
+    /// Wait until session exits or activity occurs
     Wait {
         /// Unix socket path (required)
         #[arg(long, required = true)]
         socket: String,
+
+        /// Wait for activity (any output) instead of exit
+        #[arg(long)]
+        activity: bool,
     },
 
     /// Send signal to running process
@@ -217,6 +221,8 @@ struct DaemonState {
     socket_was_auto_generated: bool,
     should_shutdown: bool,
     pty_dump: Option<std::fs::File>,
+    /// Activity flag: set when PTY output is received
+    activity: bool,
 }
 
 impl DaemonState {
@@ -242,6 +248,8 @@ impl DaemonState {
             match nix::unistd::read(self.master_fd.as_raw_fd(), &mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    // Any output from PTY is activity
+                    self.activity = true;
                     // Dump raw bytes if pty_dump is enabled
                     if let Some(ref mut dump) = self.pty_dump {
                         let _ = dump.write_all(&buf[..n]);
@@ -257,6 +265,7 @@ impl DaemonState {
             let _ = nix::unistd::write(self.master_fd.as_raw_fd(), &response);
         }
     }
+
 }
 
 fn parse_terminal_size(size: &str) -> Result<(u16, u16)> {
@@ -501,6 +510,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                 socket_was_auto_generated,
                 should_shutdown: false,
                 pty_dump: pty_dump_file,
+                activity: false,
             }));
 
             // Start PTY reader thread
@@ -639,7 +649,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
         "INPUT" => handle_input(request.data, &state),
         "OUTPUT" => handle_output(request.data, &state),
         "RUNNING" => handle_running(&state),
-        "WAIT" => handle_wait(&state, &stream),
+        "WAIT" => handle_wait(request.data.clone(), &state, &stream),
         "KILL" => handle_kill(request.data, &state),
         "STOP" => handle_stop(&state),
         "RESIZE" => handle_resize(request.data, &state),
@@ -715,8 +725,10 @@ fn handle_running(state: &Arc<Mutex<DaemonState>>) -> Response {
     }
 }
 
-fn handle_wait(state: &Arc<Mutex<DaemonState>>, stream: &UnixStream) -> Response {
+fn handle_wait(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>, stream: &UnixStream) -> Response {
     use rustix::net::{recv, RecvFlags};
+
+    let activity_mode = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
 
     loop {
         // Check if client disconnected using recv with MSG_PEEK | MSG_DONTWAIT
@@ -743,10 +755,26 @@ fn handle_wait(state: &Arc<Mutex<DaemonState>>, stream: &UnixStream) -> Response
             let mut state = state.lock().unwrap();
             state.check_child_status();
 
-            if let Some(exit_code) = state.exit_code {
-                return Response::ok(serde_json::json!({
-                    "exit_code": exit_code
-                }));
+            if activity_mode {
+                // Activity mode: return as soon as activity or exit is detected
+                // Get separate flags for PTY activity vs process exit
+                let pty_activity = state.activity;
+                let exited = state.exit_code.is_some();
+                if pty_activity || exited {
+                    // Clear the PTY activity flag
+                    state.activity = false;
+                    return Response::ok(serde_json::json!({
+                        "activity": pty_activity,
+                        "exited": exited
+                    }));
+                }
+            } else {
+                // Normal mode: wait for exit
+                if let Some(exit_code) = state.exit_code {
+                    return Response::ok(serde_json::json!({
+                        "exit_code": exit_code
+                    }));
+                }
             }
         }
 
@@ -1194,9 +1222,10 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Wait { socket } => {
+        Commands::Wait { socket, activity } => {
             let request = serde_json::json!({
-                "type": "WAIT"
+                "type": "WAIT",
+                "activity": activity
             });
 
             let response = send_request(&socket, request)?;
@@ -1207,7 +1236,13 @@ fn main() -> Result<()> {
             }
 
             if let Some(data) = response.data {
-                if let Some(exit_code) = data.get("exit_code") {
+                if activity {
+                    // Activity mode: report both terminal activity and exit status
+                    let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let has_exited = data.get("exited").and_then(|v| v.as_bool()).unwrap_or(false);
+                    println!("Terminal activity: {}", if has_activity { "true" } else { "false" });
+                    println!("Application exited: {}", if has_exited { "true" } else { "false" });
+                } else if let Some(exit_code) = data.get("exit_code") {
                     println!("{}", exit_code);
                 }
             }
