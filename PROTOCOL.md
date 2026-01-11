@@ -147,16 +147,19 @@ All responses are JSON objects:
 
 ---
 
-### WAIT - Block until process exits
+### WAIT - Block until process exits or activity occurs
 
 **Request:**
 ```json
 {
-  "type": "WAIT"
+  "type": "WAIT",
+  "activity": false
 }
 ```
 
-**Response:**
+The `activity` field is optional (default: false).
+
+**Response (normal mode, activity=false):**
 ```json
 {
   "status": "ok",
@@ -166,10 +169,27 @@ All responses are JSON objects:
 }
 ```
 
+**Response (activity mode, activity=true):**
+```json
+{
+  "status": "ok",
+  "data": {
+    "activity": true,
+    "exited": false
+  }
+}
+```
+
+**Fields (activity mode):**
+- `activity`: true if PTY output was received (application printed something)
+- `exited`: true if the child process has exited
+
 **Notes:**
-- This command blocks until the process exits
+- Normal mode: blocks until the process exits
+- Activity mode: returns as soon as PTY output is received OR process exits
 - Connection stays open while waiting
-- Returns immediately if process already exited
+- Returns immediately if condition already met (process exited, or activity pending)
+- In activity mode, the activity flag is cleared after reading (subsequent calls block until new activity)
 
 ---
 

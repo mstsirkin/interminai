@@ -178,19 +178,45 @@ fi
 
 ## interminai wait
 
-Block until the child process exits.
+Block until the child process exits, or until activity occurs.
 
 ```bash
-interminai wait --socket PATH
+interminai wait --socket PATH [--activity]
 ```
 
-**Returns:** Exit code of child process (printed to stdout).
+**Options:**
+- `--activity` - Wait for activity (any output from PTY or process exit) instead of waiting for exit
 
-**Example:**
+**Output:**
+- Without `--activity`: Exit code of child process (printed to stdout)
+- With `--activity`: Reports both terminal activity and exit status:
+  ```
+  Terminal activity: true
+  Application exited: false
+  ```
+  The activity flag is cleared after reading.
+
+**Examples:**
 ```bash
+# Wait for process to exit
 interminai wait --socket /tmp/vim.sock
 echo "Vim exited with code: $?"
+
+# Wait for any activity (output or exit)
+interminai wait --socket /tmp/app.sock --activity
+# Output:
+#   Terminal activity: true
+#   Application exited: false
 ```
+
+**Activity triggers:**
+- Any output received from the PTY (the application printed something)
+- Child process exited
+
+**Use cases for --activity:**
+- Detect when a long-running command finishes or produces output
+- Wait for a prompt to appear before sending input
+- Monitor for error conditions that produce output
 
 ## interminai kill
 
