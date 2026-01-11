@@ -157,6 +157,10 @@ Use `debug` command to check if app is in raw mode (no ICRNL flag).
 
 It is possible to create a shell interminai session and pass commands to it.
 
+**Tip**: Sudo caches credentials per-TTY. Each `interminai start` creates a new PTY,
+so sudo prompts every time even if you recently authenticated elsewhere. Use a
+long-lived shell session to run multiple sudo commands with a single password prompt.
+
 ```bash
 GIT_EDITOR=vim ./scripts/interminai start -- bash
 # Output shows: Socket: /tmp/interminai-xxx/socket
