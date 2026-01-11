@@ -191,8 +191,8 @@ sleep 0.5
 
 ## Password Input
 
-For commands requiring password entry (sudo, ssh, etc.), use `--password` to prompt
-the user without echoing the password to the screen:
+When a command prompts for a password (sudo, ssh, etc.), **do not** try to handle the
+password yourself. Instead, tell the user to run `interminai input --password` themselves:
 
 ```bash
 ./scripts/interminai start -- sudo apt update
