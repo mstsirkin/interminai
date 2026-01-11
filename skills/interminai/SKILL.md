@@ -30,8 +30,8 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 SOCKET=`mktemp -d /tmp/interminai-XXXXXX`/sock
 ./scripts/interminai start --socket "$SOCKET" -- COMMAND
 
-# 2. Send input (--text supports escapes: \n \e \t \xHH etc.)
-./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
+# 2. Send input (--text supports escapes: \r \n \e \t \xHH etc.)
+./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
 
 # 3. Check screen
 ./scripts/interminai output --socket "$SOCKET"
@@ -74,8 +74,8 @@ Default terminal size is 80x24. If not enough context fits on screen, use `--siz
 
 Exact counts for `h`/`j`/`k`/`l` are critical - cursor position after `dd` isn't always intuitive. Prefer:
 
-- `:<number>` - Go to line directly (`:5\ndd`)
-- `/<pattern>` - Search for text (`/goodbye\ndd`)
+- `:<number>` - Go to line directly (`:5\rdd`)
+- `/<pattern>` - Search for text (`/goodbye\rdd`)
 - `gg`/`G` - Anchor from known position
 - `--cursor print` - Check position after operations
 - `:%s/old/new/gc` - Search and replace with confirmation (`y`/`n` for each match)
@@ -86,7 +86,7 @@ For complex multi-line edits, another option is to edit outside vim:
 
 1. Use `output` to observe the file name
 2. Use the Edit tool to modify the file directly
-3. In vim, reload the file (`:e!\n`) or simply exit (`:q!\n`)
+3. In vim, reload the file (`:e!\r`) or simply exit (`:q!\r`)
 
 This avoids tricky vim navigation for large or intricate changes.
 
@@ -115,11 +115,11 @@ GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- bash
 sleep 0.5
 ./scripts/interminai output --socket "$SOCKET"
 # ... send commands now ..
-./scripts/interminai input --socket "$SOCKET" --text 'vim foo.txt\n'
-./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
-./scripts/interminai input --socket "$SOCKET" --text 'vim bar.txt\n'
-./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
-./scripts/interminai input --socket "$SOCKET" --text 'exit\n'
+./scripts/interminai input --socket "$SOCKET" --text 'vim foo.txt\r'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
+./scripts/interminai input --socket "$SOCKET" --text 'vim bar.txt\r'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
+./scripts/interminai input --socket "$SOCKET" --text 'exit\r'
 ./scripts/interminai wait --socket "$SOCKET"
 rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
@@ -132,7 +132,7 @@ GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCKET" -- git rebase -i HE
 sleep 0.5
 ./scripts/interminai output --socket "$SOCKET"
 # ... edit with input commands ...
-./scripts/interminai input --socket "$SOCKET" --text ':wq\n'
+./scripts/interminai input --socket "$SOCKET" --text ':wq\r'
 ./scripts/interminai wait --socket "$SOCKET"
 rm "$SOCKET"; rmdir `dirname "$SOCKET"`
 ```
