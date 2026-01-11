@@ -44,3 +44,33 @@ pub fn interminai_client_bin() -> String {
     std::env::var("OVERRIDE_CARGO_BIN_EXE_interminai_CLIENT")
         .unwrap_or_else(|_| interminai_bin())
 }
+
+/// Get the terminal emulator to use for testing.
+///
+/// Set INTERMINAI_EMULATOR environment variable to test different backends:
+/// - "xterm" (default) - full xterm-256color emulation
+/// - "custom" - basic ANSI emulation
+///
+/// # Example
+///
+/// ```bash
+/// # Test with xterm emulator (default)
+/// cargo test
+///
+/// # Test with custom emulator
+/// INTERMINAI_EMULATOR=custom cargo test
+///
+/// # Test both (run twice)
+/// cargo test && INTERMINAI_EMULATOR=custom cargo test
+/// ```
+#[allow(dead_code)]
+pub fn emulator() -> String {
+    std::env::var("INTERMINAI_EMULATOR").unwrap_or_else(|_| "xterm".to_string())
+}
+
+/// Get emulator arguments to pass to the start command.
+/// Returns ["--emulator", "<value>"] based on INTERMINAI_EMULATOR env var.
+#[allow(dead_code)]
+pub fn emulator_args() -> Vec<String> {
+    vec!["--emulator".to_string(), emulator()]
+}

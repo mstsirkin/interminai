@@ -1,5 +1,5 @@
 mod common;
-use common::interminai_bin;
+use common::{interminai_bin, emulator_args};
 
 use assert_cmd::Command;
 use std::thread;
@@ -34,6 +34,7 @@ impl DaemonHandle {
 
         let mut cmd = std::process::Command::new(interminai_bin());
         cmd.arg("start")
+            .args(emulator_args())
             .arg("--socket")
             .arg(socket)
             .arg("--no-daemon")

@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use std::path::PathBuf;
 
 mod common;
-use common::interminai_bin;
+use common::{interminai_bin, emulator_args};
 
 struct TestEnv {
     _temp_dir: TempDir,
@@ -35,6 +35,7 @@ impl DaemonHandle {
     fn spawn(socket: &str) -> Self {
         let mut cmd = std::process::Command::new(interminai_bin());
         cmd.arg("start")
+            .args(emulator_args())
             .arg("--socket")
             .arg(socket)
             .arg("--size")

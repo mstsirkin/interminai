@@ -4,7 +4,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 mod common;
-use common::{interminai_bin, interminai_server_bin, interminai_client_bin};
+use common::{interminai_bin, interminai_server_bin, interminai_client_bin, emulator_args};
 
 #[test]
 fn test_daemon_mode_returns_immediately() {
@@ -16,6 +16,7 @@ fn test_daemon_mode_returns_immediately() {
 
     let output = Command::new(interminai_server_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg(socket_path.to_str().unwrap())
         .arg("--")
@@ -66,6 +67,7 @@ fn test_no_daemon_flag_runs_foreground() {
     let handle = std::thread::spawn(move || {
         let output = Command::new(interminai_bin())
             .arg("start")
+            .args(emulator_args())
             .arg("--socket")
             .arg(&socket)
             .arg("--no-daemon")
@@ -111,6 +113,7 @@ fn test_daemon_mode_survives_parent_exit() {
     {
         let output = Command::new(interminai_bin())
             .arg("start")
+            .args(emulator_args())
             .arg("--socket")
             .arg(socket_path.to_str().unwrap())
             .arg("--")
@@ -147,6 +150,7 @@ fn test_auto_generated_socket_from_output() {
     // Start without --socket and parse socket path from output
     let output = Command::new(interminai_server_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--")
         .arg("bash")
         .arg("-c")

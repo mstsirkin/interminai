@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use std::time::Duration;
 
 mod common;
-use common::interminai_bin;
+use common::{interminai_bin, emulator_args};
 
 #[test]
 fn test_nonexistent_socket_output() {
@@ -57,6 +57,7 @@ fn test_nonexistent_socket_stop() {
 fn test_invalid_terminal_size() {
     Command::new(interminai_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg("/tmp/test-invalid-size.sock")
         .arg("--size")
@@ -80,6 +81,7 @@ fn test_invalid_signal_name() {
     // Start daemon
     let mut daemon = std::process::Command::new(interminai_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg(socket.to_str().unwrap())
         .arg("--")
@@ -125,6 +127,7 @@ fn test_invalid_signal_number() {
     // Start daemon
     let mut daemon = std::process::Command::new(interminai_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg(socket.to_str().unwrap())
         .arg("--")
@@ -187,6 +190,7 @@ fn test_nonexistent_command_exits_gracefully() {
     // Start daemon with nonexistent command
     let mut daemon = std::process::Command::new(interminai_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg(socket.to_str().unwrap())
         .arg("--")

@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use std::path::PathBuf;
 
 mod common;
-use common::interminai_bin;
+use common::{interminai_bin, emulator_args};
 
 /// Helper to create a test environment with temporary directory and socket
 struct TestEnv {
@@ -42,6 +42,7 @@ impl DaemonHandle {
 
         let mut cmd = std::process::Command::new(interminai_bin());
         cmd.arg("start")
+            .args(emulator_args())
             .arg("--socket")
             .arg(socket)
             .arg("--no-daemon")

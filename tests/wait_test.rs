@@ -1,5 +1,5 @@
 mod common;
-use common::interminai_bin;
+use common::{interminai_bin, emulator_args};
 
 use assert_cmd::Command;
 use std::thread;
@@ -14,6 +14,7 @@ fn test_wait_interrupted_by_client_disconnect() {
     // Start daemon with long-running command
     let output = Command::new(interminai_bin())
         .arg("start")
+        .args(emulator_args())
         .arg("--socket")
         .arg(socket_path.to_str().unwrap())
         .arg("--")
