@@ -203,6 +203,24 @@ else
 fi
 ```
 
+## interminai status
+
+Get session status in human-readable format.
+
+```bash
+interminai status --socket PATH
+```
+
+**Output:**
+```
+Running: true
+```
+or when process has exited:
+```
+Running: false
+Exit code: 0
+```
+
 ## interminai wait
 
 Block until the child process exits, or until activity occurs.
