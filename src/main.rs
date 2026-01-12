@@ -751,9 +751,11 @@ fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> R
     let running = state.exit_code.is_none();
 
     if activity_mode {
+        let activity = state.activity;
+        state.activity = false;  // Clear the flag after reading
         let mut response = serde_json::json!({
             "running": running,
-            "activity": state.activity
+            "activity": activity
         });
         if let Some(exit_code) = state.exit_code {
             response["exit_code"] = serde_json::json!(exit_code);
