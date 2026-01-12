@@ -123,6 +123,13 @@ enum Commands {
         socket: String,
     },
 
+    /// Get session status (human-readable)
+    Status {
+        /// Unix socket path (required)
+        #[arg(long, required = true)]
+        socket: String,
+    },
+
     /// Wait until session exits or activity occurs
     Wait {
         /// Unix socket path (required)
@@ -1281,6 +1288,29 @@ fn main() -> Result<()> {
                         println!("{}", exit_code);
                     }
                     std::process::exit(1);
+                }
+            }
+        }
+        Commands::Status { socket } => {
+            let request = serde_json::json!({
+                "type": "STATUS"
+            });
+
+            let response = send_request(&socket, request)?;
+
+            if response.status == "error" {
+                eprintln!("Error: {}", response.error.unwrap_or_default());
+                std::process::exit(1);
+            }
+
+            if let Some(data) = response.data {
+                let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+                println!("Running: {}", running);
+
+                if !running {
+                    if let Some(exit_code) = data.get("exit_code") {
+                        println!("Exit code: {}", exit_code);
+                    }
                 }
             }
         }
