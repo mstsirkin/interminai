@@ -49,9 +49,11 @@ Just read the socket path from the `start` output and use it directly - no need 
 
 - `start -- COMMAND` - Start application (prints socket path on stdout)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
-- `wait --socket PATH --activity` - Wait for activity (any output), prints activity and exit status
 - `output --socket PATH` - Get screen (add `--cursor print` for cursor position)
+- `status --socket PATH` - Check if running (exit 0) or exited (exit 1, prints exit code)
+- `status --socket PATH --activity` - Check running state and activity flag
 - `wait --socket PATH` - Wait for process to exit (prints exit code)
+- `wait --socket PATH --activity` - Wait for activity (any output), prints activity and exit status
 - `stop --socket PATH` - Stop session (also cleans up auto-generated socket)
 
 ## Key Best Practices
@@ -63,6 +65,35 @@ Just read the socket path from the `start` output and use it directly - no need 
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
 7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH --activity` instead of repeatedly calling `output`
+
+## Checking Activity (Recommended for LLMs)
+
+Use `status --activity` to check if there's new terminal output without blocking. This is
+useful for LLMs like Claude or Codex to decide whether to fetch new output or wait longer.
+
+```bash
+./scripts/interminai status --socket /tmp/interminai-xxx/socket --activity
+# Output:
+#   Running: true
+#   Activity: true
+```
+
+**Pattern for efficient polling:**
+
+```bash
+# After sending input, check if there's activity before fetching output
+./scripts/interminai input --socket $SOCK --text 'make build\r'
+sleep 0.5
+
+# Check activity without blocking
+./scripts/interminai status --socket $SOCK --activity
+# If Activity: true, fetch output
+# If Activity: false, wait longer or send more input
+```
+
+This avoids repeatedly calling `output` when nothing has changed, saving context window
+space and reducing noise. The activity flag indicates PTY output was received since the
+last `wait --activity` call.
 
 ## Terminal Size
 
