@@ -76,16 +76,16 @@ All responses are JSON objects:
 ```json
 {
   "type": "OUTPUT",
-  "format": "ascii" | "json"
+  "format": "ascii" | "ansi"
 }
 ```
 
-**Response (ascii format):**
+**Response (ascii format - default):**
 ```json
 {
   "status": "ok",
   "data": {
-    "screen": "ASCII art representation of screen\nwith newlines...",
+    "screen": "Plain text representation of screen\nwith newlines...",
     "cursor": {
       "row": 5,
       "col": 10
@@ -98,20 +98,28 @@ All responses are JSON objects:
 }
 ```
 
-**Response (json format):**
+**Response (ansi format):**
 ```json
 {
   "status": "ok",
   "data": {
-    "cells": [
-      [{"char": "a", "fg": "white", "bg": "black"}, ...],
-      ...
-    ],
-    "cursor": {"row": 5, "col": 10},
-    "size": {"rows": 24, "cols": 80}
+    "screen": "\u001b[38;2;255;0;0mColored text\u001b[0m with ANSI codes...",
+    "cursor": {
+      "row": 5,
+      "col": 10
+    },
+    "size": {
+      "rows": 24,
+      "cols": 80
+    }
   }
 }
 ```
+
+**Notes:**
+- `ascii`: Plain text, no color codes (default, works with all backends)
+- `ansi`: Text with embedded ANSI escape codes for colors and attributes.
+  Supported by Alacritty and pyte backends. Custom backend returns plain text.
 
 ---
 
