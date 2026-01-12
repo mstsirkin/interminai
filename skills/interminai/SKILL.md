@@ -69,7 +69,8 @@ Just read the socket path from the `start` output and use it directly - no need 
 ## Checking Activity (Recommended for LLMs)
 
 Use `status --activity` to check if there's new terminal output without blocking. This is
-useful for LLMs like Claude or Codex to decide whether to fetch new output or wait longer.
+useful if you are running e.g. LLMs like Claude or Codex and want to decide
+whether to fetch new output or wait longer.
 
 ```bash
 ./scripts/interminai status --socket /tmp/interminai-xxx/socket --activity
