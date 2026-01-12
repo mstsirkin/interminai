@@ -7,12 +7,15 @@ Complete reference for all interminai commands.
 Start an interactive terminal session.
 
 ```bash
-interminai start [--socket PATH] [--size WxH] [--no-daemon] -- COMMAND...
+interminai start [--socket PATH] [--size WxH] [--emulator BACKEND] [--no-daemon] -- COMMAND...
 ```
 
 **Options:**
 - `--socket PATH` - Unix socket path (auto-generated if not specified)
 - `--size WxH` - Terminal size (default: 80x24)
+- `--emulator BACKEND` - Terminal emulator backend (default: xterm)
+  - `xterm` - Full xterm emulation with color support (recommended)
+  - `custom` - Basic ANSI emulation, no colors
 - `--no-daemon` - Run in foreground instead of daemon mode
 - `--pty-dump FILE` - Dump raw PTY output to file (for debugging)
 
@@ -115,18 +118,20 @@ printf 'Hello\n' | interminai input --socket /tmp/vim.sock
 Get the current screen contents.
 
 ```bash
-interminai output --socket PATH [--format ascii] [--cursor MODE]
+interminai output --socket PATH [--format FORMAT] [--cursor MODE]
 ```
 
 **Options:**
-- `--format ascii` - Output format (default: ascii)
+- `--format FORMAT` - Output format (default: ascii)
+  - `ascii` - Plain text, no color codes (default)
+  - `ansi` - Text with ANSI color/attribute escape codes
 - `--cursor MODE` - Cursor display mode (default: none)
   - `none` - No cursor indication (default)
   - `print` - Show "Cursor: row X, col Y" before screen output (1-based)
   - `inverse` - Highlight cursor position with inverse video
   - `both` - Both print and inverse modes
 
-**Output:** ASCII art representation of terminal screen (rows × columns).
+**Output:** Terminal screen content (rows × columns).
 
 **Example output (default):**
 ```
@@ -154,6 +159,28 @@ Hello World
 - Use `--cursor inverse` for visual debugging of where the cursor is
 - Use `--cursor both` when you want both textual and visual confirmation
 - Most applications (bash, TUI apps) don't show cursor position on screen, so cursor flags are helpful for knowing where input will go
+
+**Color output (`--format ansi`):**
+
+When using `--format ansi`, the output includes ANSI escape codes for colors and text attributes:
+
+```bash
+# Get colored output
+interminai output --socket /tmp/app.sock --format ansi
+```
+
+Example output (raw):
+```
+\e[0;31mError:\e[0m File not found
+\e[1;32mSuccess\e[0m
+```
+
+Supported attributes:
+- Foreground/background colors (named, 256-color, 24-bit RGB)
+- Bold, dim, italic, underline, inverse, strikethrough
+
+**Note:** To get colors, start interminai with `--emulator xterm` (default). If
+using `--emulator custom` you will get plain text even with `--format ansi`.
 
 ## interminai running
 
@@ -367,5 +394,4 @@ Size format must be `WxH`.
 
 - **No mouse support** - PTY is keyboard-only
 - **No clipboard access** - Can't copy/paste from system clipboard
-- **No colors** - Output is plain ASCII text
 - **Limited escape sequences** - Complex terminal features may not work
