@@ -128,6 +128,10 @@ enum Commands {
         /// Unix socket path (required)
         #[arg(long, required = true)]
         socket: String,
+
+        /// Include activity information
+        #[arg(long)]
+        activity: bool,
     },
 
     /// Wait until session exits or activity occurs
@@ -682,7 +686,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
     let response = match request.req_type.as_str() {
         "INPUT" => handle_input(request.data, &state),
         "OUTPUT" => handle_output(request.data, &state),
-        "STATUS" => handle_running(&state),
+        "STATUS" => handle_running(request.data, &state),
         "WAIT" => handle_wait(request.data.clone(), &state, &stream),
         "KILL" => handle_kill(request.data, &state),
         "STOP" => handle_stop(&state),
@@ -746,11 +750,23 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     Response::ok(data)
 }
 
-fn handle_running(state: &Arc<Mutex<DaemonState>>) -> Response {
+fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
+    let activity_mode = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
     let mut state = state.lock().unwrap();
     state.check_child_status();
 
-    if let Some(exit_code) = state.exit_code {
+    let running = state.exit_code.is_none();
+
+    if activity_mode {
+        let mut response = serde_json::json!({
+            "running": running,
+            "activity": state.activity
+        });
+        if let Some(exit_code) = state.exit_code {
+            response["exit_code"] = serde_json::json!(exit_code);
+        }
+        Response::ok(response)
+    } else if let Some(exit_code) = state.exit_code {
         Response::ok(serde_json::json!({
             "running": false,
             "exit_code": exit_code
@@ -1291,9 +1307,10 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Status { socket } => {
+        Commands::Status { socket, activity } => {
             let request = serde_json::json!({
-                "type": "STATUS"
+                "type": "STATUS",
+                "activity": activity
             });
 
             let response = send_request(&socket, request)?;
@@ -1305,11 +1322,26 @@ fn main() -> Result<()> {
 
             if let Some(data) = response.data {
                 let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
-                println!("Running: {}", running);
 
-                if !running {
-                    if let Some(exit_code) = data.get("exit_code") {
-                        println!("Exit code: {}", exit_code);
+                if activity {
+                    // Verbose mode: print all status info
+                    println!("Running: {}", running);
+                    let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
+                    println!("Activity: {}", has_activity);
+                    if !running {
+                        if let Some(exit_code) = data.get("exit_code") {
+                            println!("Exit code: {}", exit_code);
+                        }
+                    }
+                } else {
+                    // Simple mode: like 'running' command
+                    if running {
+                        std::process::exit(0);
+                    } else {
+                        if let Some(exit_code) = data.get("exit_code") {
+                            println!("{}", exit_code);
+                        }
+                        std::process::exit(1);
                     }
                 }
             }
