@@ -116,14 +116,7 @@ enum Commands {
         socket: String,
     },
 
-    /// Check if session is still running
-    Running {
-        /// Unix socket path (required)
-        #[arg(long, required = true)]
-        socket: String,
-    },
-
-    /// Get session status (human-readable)
+    /// Get session status
     Status {
         /// Unix socket path (required)
         #[arg(long, required = true)]
@@ -1277,33 +1270,6 @@ fn main() -> Result<()> {
                     } else {
                         print!("{}", screen);
                     }
-                }
-            }
-        }
-        Commands::Running { socket } => {
-            let request = serde_json::json!({
-                "type": "STATUS"
-            });
-
-            let response = send_request(&socket, request)?;
-
-            if response.status == "error" {
-                eprintln!("Error: {}", response.error.unwrap_or_default());
-                std::process::exit(1);
-            }
-
-            if let Some(data) = response.data {
-                let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
-
-                if running {
-                    // Exit 0 if running
-                    std::process::exit(0);
-                } else {
-                    // Print exit code and exit 1 if not running
-                    if let Some(exit_code) = data.get("exit_code") {
-                        println!("{}", exit_code);
-                    }
-                    std::process::exit(1);
                 }
             }
         }
