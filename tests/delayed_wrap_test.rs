@@ -243,6 +243,39 @@ fn test_multi_line_update_in_place() {
     daemon.stop();
 }
 
+/// Test backspace behavior after filling line exactly (pending wrap state).
+///
+/// Terminals differ in how they handle backspace at the right margin:
+///
+/// 1. DEC-compliant (XTerm, Alacritty, real VT100/220/420/510):
+///    - Backspace cancels pending wrap AND moves cursor back one column
+///    - Result: "ABCDEFGHIJ" + BS + "X" -> "ABCDEFGHXJ" (X overwrites I)
+///
+/// 2. Non-DEC (rxvt, PuTTY, Konsole):
+///    - Backspace cancels pending wrap but does NOT move cursor (BS is "absorbed")
+///    - Result: "ABCDEFGHIJ" + BS + "X" -> "ABCDEFGHIX" (X overwrites J)
+///
+/// We follow DEC/XTerm behavior as verified by wraptest (github.com/mattiase/wraptest).
+#[test]
+fn test_backspace_after_exact_fill() {
+    let env = TestEnv::new();
+    // 10-column terminal, print 10 chars, backspace, X
+    // DEC-compliant: backspace cancels pending wrap and moves cursor to col 9 (0-indexed: 8)
+    // X should overwrite I, resulting in ABCDEFGHXJ
+    let daemon = DaemonHandle::spawn_printf(&env.socket(), "10x5", "ABCDEFGHIJ\\bX");
+
+    let output = daemon.get_output();
+    let first_line = output.lines().next().unwrap_or("");
+    assert_eq!(first_line, "ABCDEFGHXJ",
+        "Backspace should cancel pending wrap and X should overwrite 'I'. Got: '{}'", first_line);
+
+    let (row, col) = daemon.get_cursor();
+    assert_eq!(row, 1, "Cursor should stay on row 1");
+    assert_eq!(col, 10, "Cursor should be at col 10 after writing X");
+
+    daemon.stop();
+}
+
 /// Test that exactly 80 characters on 80-column terminal works correctly
 /// This is the specific case that was broken before the delayed wrap fix
 #[test]
