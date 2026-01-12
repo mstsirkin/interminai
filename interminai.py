@@ -88,7 +88,7 @@ class Screen:
         self.pending_responses = []
         # Delayed wrap mode: when true, the next printable character will wrap to next line first
         self.pending_wrap = False
-        # Activity flag: set to True when output is received, cleared by wait --activity
+        # Activity flag: set to True when output is received, cleared by status/wait --activity
         self.activity = False
 
     def scroll_up(self):
@@ -486,7 +486,7 @@ class PyteScreen:
         self.pending_responses = []
         self.cursor_row = 0
         self.cursor_col = 0
-        # Activity flag: set to True when output is received, cleared by wait --activity
+        # Activity flag: set to True when output is received, cleared by status/wait --activity
         self.activity = False
 
     def process_output(self, data):
@@ -982,9 +982,11 @@ def handle_running(activity_mode, state):
     running = state.exit_code is None
 
     if activity_mode:
+        activity = state.activity
+        state.activity = False  # Clear the flag after reading
         data = {
             'running': running,
-            'activity': state.activity
+            'activity': activity
         }
         if state.exit_code is not None:
             data['exit_code'] = state.exit_code
