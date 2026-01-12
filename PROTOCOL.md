@@ -168,9 +168,9 @@ The `activity` field is optional (default: false).
 ```
 
 **Fields (activity mode):**
-- `activity`: true if PTY output was received since last WAIT with activity mode
+- `activity`: true if PTY output was received since last STATUS/WAIT with activity mode
 
-**Note:** Unlike WAIT, STATUS does not clear the activity flag.
+The activity flag is cleared after reading.
 
 ---
 
