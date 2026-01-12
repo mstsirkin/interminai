@@ -675,7 +675,7 @@ fn handle_client(mut stream: UnixStream, state: Arc<Mutex<DaemonState>>) -> Resu
     let response = match request.req_type.as_str() {
         "INPUT" => handle_input(request.data, &state),
         "OUTPUT" => handle_output(request.data, &state),
-        "RUNNING" => handle_running(&state),
+        "STATUS" => handle_running(&state),
         "WAIT" => handle_wait(request.data.clone(), &state, &stream),
         "KILL" => handle_kill(request.data, &state),
         "STOP" => handle_stop(&state),
@@ -1259,7 +1259,7 @@ fn main() -> Result<()> {
         }
         Commands::Running { socket } => {
             let request = serde_json::json!({
-                "type": "RUNNING"
+                "type": "STATUS"
             });
 
             let response = send_request(&socket, request)?;
