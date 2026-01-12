@@ -200,3 +200,61 @@ fn test_wait_activity_multiple_events_coalesce() {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     assert!(stdout.contains("Terminal activity: true"), "Should report activity for multiple events: got '{}'", stdout);
 }
+
+// Test status --activity clears flag after read
+#[test]
+fn test_status_activity_clears_after_read() {
+    let env = TestEnv::new();
+
+    // Start bash that outputs something and then waits for input
+    let daemon = DaemonHandle::spawn_with_socket(&env.socket(), &["bash", "-c", "echo hello; read line; echo got $line"]);
+    thread::sleep(Duration::from_millis(500));
+
+    // First status --activity - should report activity: true
+    let output = Command::new(interminai_bin())
+        .arg("status")
+        .arg("--socket")
+        .arg(&daemon.socket_path)
+        .arg("--activity")
+        .output()
+        .expect("Failed to get status");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.contains("Activity: true"), "First status --activity should report true: got '{}'", stdout);
+
+    // Second status --activity - should report activity: false (flag was cleared)
+    let output = Command::new(interminai_bin())
+        .arg("status")
+        .arg("--socket")
+        .arg(&daemon.socket_path)
+        .arg("--activity")
+        .output()
+        .expect("Failed to get status");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.contains("Activity: false"), "Second status --activity should report false after clear: got '{}'", stdout);
+
+    // Send input to trigger more activity
+    Command::new(interminai_bin())
+        .arg("input")
+        .arg("--socket")
+        .arg(&daemon.socket_path)
+        .arg("--text")
+        .arg("test\n")
+        .output()
+        .expect("Failed to send input");
+
+    thread::sleep(Duration::from_millis(300));
+
+    // Third status --activity - should report activity: true again
+    let output = Command::new(interminai_bin())
+        .arg("status")
+        .arg("--socket")
+        .arg(&daemon.socket_path)
+        .arg("--activity")
+        .output()
+        .expect("Failed to get status");
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.contains("Activity: true"), "Third status --activity should report true after new output: got '{}'", stdout);
+}
