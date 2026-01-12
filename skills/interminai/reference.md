@@ -182,30 +182,9 @@ Supported attributes:
 **Note:** To get colors, start interminai with `--emulator xterm` (default). If
 using `--emulator custom` you will get plain text even with `--format ansi`.
 
-## interminai running
-
-Check if the child process is still running.
-
-```bash
-interminai running --socket PATH
-```
-
-**Exit codes:**
-- `0` - Process is running
-- `1` - Process has exited (exit code printed to stdout)
-
-**Example:**
-```bash
-if interminai running --socket /tmp/app.sock; then
-    echo "Still running"
-else
-    echo "Process exited"
-fi
-```
-
 ## interminai status
 
-Check process status. Without `--activity`, behaves like `running` command.
+Check process status.
 
 ```bash
 interminai status --socket PATH [--activity]
@@ -216,6 +195,15 @@ interminai status --socket PATH [--activity]
 
 **Without `--activity`:**
 - Exit codes: `0` if running, `1` if exited (prints exit code to stdout)
+
+**Example:**
+```bash
+if interminai status --socket /tmp/app.sock; then
+    echo "Still running"
+else
+    echo "Process exited"
+fi
+```
 
 **With `--activity`:**
 ```
