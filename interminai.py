@@ -88,7 +88,7 @@ class Screen:
         self.pending_responses = []
         # Delayed wrap mode: when true, the next printable character will wrap to next line first
         self.pending_wrap = False
-        # Activity flag: set to True when output is received, cleared by status/wait --activity
+        # Activity flag: set to True when output is received, cleared by status or wait
         self.activity = False
 
     def scroll_up(self):
@@ -486,7 +486,7 @@ class PyteScreen:
         self.pending_responses = []
         self.cursor_row = 0
         self.cursor_col = 0
-        # Activity flag: set to True when output is received, cleared by status/wait --activity
+        # Activity flag: set to True when output is received, cleared by status or wait
         self.activity = False
 
     def process_output(self, data):
@@ -1327,7 +1327,7 @@ def cmd_input(args):
 
 def cmd_status(args):
     """Status command - get session status"""
-    request = {'type': 'STATUS', 'activity': args.activity}
+    request = {'type': 'STATUS', 'activity': not args.quiet}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1337,8 +1337,15 @@ def cmd_status(args):
     data = response['data']
     running = data.get('running', False)
 
-    if args.activity:
-        # Verbose mode: print all status info
+    if args.quiet:
+        # Quiet mode: just exit status
+        if not running:
+            exit_code = data.get('exit_code')
+            if exit_code is not None:
+                print(exit_code)
+            sys.exit(1)
+    else:
+        # Default mode: print all status info
         print(f"Running: {str(running).lower()}")
         activity = data.get('activity', False)
         print(f"Activity: {str(activity).lower()}")
@@ -1346,13 +1353,6 @@ def cmd_status(args):
             exit_code = data.get('exit_code')
             if exit_code is not None:
                 print(f"Exit code: {exit_code}")
-    else:
-        # Simple mode: like 'running' command
-        if not running:
-            exit_code = data.get('exit_code')
-            if exit_code is not None:
-                print(exit_code)
-            sys.exit(1)
 
 
 def cmd_stop(args):
@@ -1367,7 +1367,7 @@ def cmd_stop(args):
 
 def cmd_wait(args):
     """Wait command - wait for program to exit or activity"""
-    request = {'type': 'WAIT', 'data': {'activity': args.activity}}
+    request = {'type': 'WAIT', 'data': {'activity': not args.quiet}}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1375,16 +1375,17 @@ def cmd_wait(args):
         sys.exit(1)
 
     data = response['data']
-    if args.activity:
-        # Activity mode: report both terminal activity and exit status
+    if args.quiet:
+        # Quiet mode: just print exit code
+        if data.get('exit_code') is not None:
+            print(data['exit_code'])
+            sys.exit(0)
+    else:
+        # Default mode: report both terminal activity and exit status
         has_activity = data.get('activity', False)
         has_exited = data.get('exited', False)
         print(f"Terminal activity: {'true' if has_activity else 'false'}")
         print(f"Application exited: {'true' if has_exited else 'false'}")
-    elif data['exit_code'] is not None:
-        # Print exit code but exit with 0 (success) to match Rust behavior
-        print(data['exit_code'])
-        sys.exit(0)
 
 
 def cmd_kill(args):
@@ -1480,7 +1481,7 @@ def main():
     # Status command
     status_parser = subparsers.add_parser('status', help='Check process status')
     status_parser.add_argument('--socket', required=True, help='Socket path')
-    status_parser.add_argument('--activity', action='store_true', help='Include activity information')
+    status_parser.add_argument('--quiet', action='store_true', help='Just exit status (0 if running, 1 if exited)')
     status_parser.set_defaults(func=cmd_status)
 
     # Stop command
@@ -1491,8 +1492,8 @@ def main():
     # Wait command
     wait_parser = subparsers.add_parser('wait', help='Wait for exit or activity')
     wait_parser.add_argument('--socket', required=True, help='Socket path')
-    wait_parser.add_argument('--activity', action='store_true',
-                             help='Wait for activity (any output) instead of exit')
+    wait_parser.add_argument('--quiet', action='store_true',
+                             help='Wait for exit only, print exit code')
     wait_parser.set_defaults(func=cmd_wait)
 
     # Kill command
