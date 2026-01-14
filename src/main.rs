@@ -381,7 +381,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command, None);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command);
     }
 
     // Double-fork to properly daemonize
@@ -412,55 +412,6 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
                 Ok(Fork::Child) => {
                     // Grandchild: become daemon
                     setsid().expect("Failed to create new session");
-
-                    // Preserve stdin before redirecting to /dev/null - we'll watch it for EOF
-                    // to detect when the parent process (the AI that started us) dies.
-                    // Only watch if stdin is a pipe or socket (not /dev/null or a regular file),
-                    // AND only if it's not already at EOF (e.g., an empty pipe from a test).
-                    let parent_watch_fd = {
-                        use rustix::fs::{fstat, FileType};
-                        use rustix::event::{poll, PollFd, PollFlags, Timespec};
-                        let stdin_fd = std::io::stdin();
-                        match fstat(&stdin_fd) {
-                            Ok(stat) => {
-                                let file_type = FileType::from_raw_mode(stat.st_mode);
-                                if file_type == FileType::Fifo || file_type == FileType::Socket {
-                                    // stdin is a pipe or socket - check if it's already closed
-                                    let duped = match rustix::io::dup(&stdin_fd) {
-                                        Ok(fd) => fd,
-                                        Err(_) => return Ok(()), // Can't dup, skip watching
-                                    };
-
-                                    // Non-blocking poll to check if already at EOF
-                                    let mut poll_fds = [PollFd::new(&duped, PollFlags::IN | PollFlags::HUP)];
-                                    let zero_timeout = Timespec { tv_sec: 0, tv_nsec: 0 };
-                                    if poll(&mut poll_fds, Some(&zero_timeout)).is_ok() {
-                                        let revents = poll_fds[0].revents();
-                                        if revents.intersects(PollFlags::HUP | PollFlags::ERR) {
-                                            // Already at EOF - don't watch (e.g., empty pipe from test)
-                                            None
-                                        } else if revents.contains(PollFlags::IN) {
-                                            // Data available - try to read to check for EOF
-                                            let mut buf = [0u8; 1];
-                                            match rustix::io::read(&duped, &mut buf) {
-                                                Ok(0) => None, // EOF - don't watch
-                                                _ => Some(duped), // Has data or would block - watch
-                                            }
-                                        } else {
-                                            // Not at EOF yet - watch it for parent death
-                                            Some(duped)
-                                        }
-                                    } else {
-                                        Some(duped)
-                                    }
-                                } else {
-                                    // stdin is /dev/null, a file, or something else - don't watch
-                                    None
-                                }
-                            }
-                            Err(_) => None,
-                        }
-                    };
 
                     // Redirect stdin/stdout/stderr to /dev/null (standard daemon behavior)
                     // Note: Programs running in the PTY are unaffected - they get their own
@@ -493,7 +444,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command, parent_watch_fd) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -512,7 +463,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, pty_dump: Option<String>, command: Vec<String>, parent_watch_fd: Option<OwnedFd>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, pty_dump: Option<String>, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -622,29 +573,6 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
                     let state_locked = state.lock().unwrap();
                     if state_locked.should_shutdown {
                         break;
-                    }
-                }
-
-                // Check if parent process died (stdin EOF/HUP)
-                if let Some(ref watch_fd) = parent_watch_fd {
-                    use rustix::event::{poll, PollFd, PollFlags, Timespec};
-                    let mut poll_fds = [PollFd::new(watch_fd, PollFlags::IN | PollFlags::HUP)];
-                    // Non-blocking poll (timeout = 0)
-                    let zero_timeout = Timespec { tv_sec: 0, tv_nsec: 0 };
-                    if poll(&mut poll_fds, Some(&zero_timeout)).is_ok() {
-                        let revents = poll_fds[0].revents();
-                        if revents.intersects(PollFlags::HUP | PollFlags::ERR) {
-                            // Parent's end of the pipe/pty closed - parent died
-                            break;
-                        }
-                        if revents.contains(PollFlags::IN) {
-                            // Try to read - if we get 0 bytes, it's EOF
-                            let mut buf = [0u8; 1];
-                            if let Ok(0) = rustix::io::read(watch_fd, &mut buf) {
-                                // EOF - parent died
-                                break;
-                            }
-                        }
                     }
                 }
 
