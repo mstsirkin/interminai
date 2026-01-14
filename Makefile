@@ -2,6 +2,7 @@
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
+.PHONY: install-mcp install-mcp-rust install-mcp-python
 .PHONY: install-tool-rust install-tool-python
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
@@ -17,9 +18,12 @@ help: ## Show this help message
 	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
 	@echo "  make install-claude-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
 	@echo "  make install-claude-python - Install Python skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make install-codex       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
-	@echo "  make install-codex-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make install-codex-python - Install Python skill to ~/.claude/skills/ for Claude Code"
+	@echo "  make install-codex       - Install Rust skill to ~/.codex/skills/ for Codex (default)"
+	@echo "  make install-codex-rust  - Install Rust skill to ~/.codex/skills/ for Codex"
+	@echo "  make install-codex-python - Install Python skill to ~/.codex/skills/ for Codex"
+	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ for cursor-agent etc"
+	@echo "  make install-mcp-rust    - Install Rust MCP server"
+	@echo "  make install-mcp-python  - Install Python MCP server"
 	@echo "  make test                 - Run all tests (both emulators, both implementations)"
 	@echo "  make test-rust            - Run Rust tests with both emulators"
 	@echo "  make test-python          - Run Python tests with both emulators"
@@ -76,6 +80,26 @@ install-codex-rust: TOOL = codex
 install-codex-rust: install-tool-rust
 install-codex-python: TOOL = codex
 install-codex-python: install-tool-python
+
+install-mcp: install-mcp-rust ## Install MCP server to ~/.mcp/skills/ for cursor-agent
+
+install-mcp-rust: NAME = Rust
+install-mcp-rust: SRC = target/release/interminai
+install-mcp-rust: install-mcp-impl
+
+install-mcp-python: NAME = Python
+install-mcp-python: SRC = interminai.py
+install-mcp-python: install-mcp-impl
+
+install-mcp-impl: DST = ~/.mcp/skills
+install-mcp-impl: install-atomic
+	@cp mcp_server.py $(DST)/interminai/
+	@chmod +x $(DST)/interminai/mcp_server.py
+	@echo ""
+	@echo "MCP server installed. To configure cursor-agent, add to ~/.cursor/mcp.json:"
+	@echo '  {"mcpServers": {"interminai": {"command": "$(HOME)/.mcp/skills/interminai/mcp_server.py"}}}'
+	@echo ""
+	@echo "Then enable with: cursor-agent mcp enable interminai"
 
 install-atomic: build
 	@test -n "$(DST)"
