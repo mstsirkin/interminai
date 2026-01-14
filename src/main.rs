@@ -122,9 +122,9 @@ enum Commands {
         #[arg(long, required = true)]
         socket: String,
 
-        /// Include activity information
+        /// Quiet mode: just exit status (0 if running, 1 if exited)
         #[arg(long)]
-        activity: bool,
+        quiet: bool,
     },
 
     /// Wait until session exits or activity occurs
@@ -133,9 +133,9 @@ enum Commands {
         #[arg(long, required = true)]
         socket: String,
 
-        /// Wait for activity (any output) instead of exit
+        /// Quiet mode: wait for exit only, print exit code
         #[arg(long)]
-        activity: bool,
+        quiet: bool,
     },
 
     /// Send signal to running process
@@ -1275,10 +1275,10 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Status { socket, activity } => {
+        Commands::Status { socket, quiet } => {
             let request = serde_json::json!({
                 "type": "STATUS",
-                "activity": activity
+                "activity": !quiet
             });
 
             let response = send_request(&socket, request)?;
@@ -1291,18 +1291,8 @@ fn main() -> Result<()> {
             if let Some(data) = response.data {
                 let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
 
-                if activity {
-                    // Verbose mode: print all status info
-                    println!("Running: {}", running);
-                    let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
-                    println!("Activity: {}", has_activity);
-                    if !running {
-                        if let Some(exit_code) = data.get("exit_code") {
-                            println!("Exit code: {}", exit_code);
-                        }
-                    }
-                } else {
-                    // Simple mode: like 'running' command
+                if quiet {
+                    // Quiet mode: just exit status
                     if running {
                         std::process::exit(0);
                     } else {
@@ -1311,13 +1301,23 @@ fn main() -> Result<()> {
                         }
                         std::process::exit(1);
                     }
+                } else {
+                    // Default mode: print all status info
+                    println!("Running: {}", running);
+                    let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
+                    println!("Activity: {}", has_activity);
+                    if !running {
+                        if let Some(exit_code) = data.get("exit_code") {
+                            println!("Exit code: {}", exit_code);
+                        }
+                    }
                 }
             }
         }
-        Commands::Wait { socket, activity } => {
+        Commands::Wait { socket, quiet } => {
             let request = serde_json::json!({
                 "type": "WAIT",
-                "activity": activity
+                "activity": !quiet
             });
 
             let response = send_request(&socket, request)?;
@@ -1328,14 +1328,17 @@ fn main() -> Result<()> {
             }
 
             if let Some(data) = response.data {
-                if activity {
-                    // Activity mode: report both terminal activity and exit status
+                if quiet {
+                    // Quiet mode: just print exit code
+                    if let Some(exit_code) = data.get("exit_code") {
+                        println!("{}", exit_code);
+                    }
+                } else {
+                    // Default mode: report both terminal activity and exit status
                     let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
                     let has_exited = data.get("exited").and_then(|v| v.as_bool()).unwrap_or(false);
                     println!("Terminal activity: {}", if has_activity { "true" } else { "false" });
                     println!("Application exited: {}", if has_exited { "true" } else { "false" });
-                } else if let Some(exit_code) = data.get("exit_code") {
-                    println!("{}", exit_code);
                 }
             }
         }
