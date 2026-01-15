@@ -12,6 +12,12 @@ use alacritty_terminal::index::{Column, Line};
 
 use crate::terminal::{TerminalEmulator, UnhandledSequence};
 
+/// Display-related flags that affect ANSI output (excludes internal flags like WRAPLINE)
+fn display_flags(flags: Flags) -> Flags {
+    flags & (Flags::BOLD | Flags::DIM | Flags::ITALIC | Flags::UNDERLINE
+           | Flags::INVERSE | Flags::HIDDEN | Flags::STRIKEOUT)
+}
+
 /// Simple dimensions struct for creating the terminal
 struct TermDimensions {
     columns: usize,
@@ -279,10 +285,11 @@ impl TerminalEmulator for AlacrittyTerminal {
                     continue;
                 }
 
-                // Check if we need to emit SGR codes
+                // Check if we need to emit SGR codes (only compare display-related flags)
+                let cell_display_flags = display_flags(cell.flags);
                 let need_sgr = cell.fg != current_fg
                     || cell.bg != current_bg
-                    || cell.flags != current_flags;
+                    || cell_display_flags != current_flags;
 
                 if need_sgr {
                     let sgr = build_sgr_sequence(&cell.fg, &cell.bg, cell.flags);
@@ -291,7 +298,7 @@ impl TerminalEmulator for AlacrittyTerminal {
                     }
                     current_fg = cell.fg;
                     current_bg = cell.bg;
-                    current_flags = cell.flags;
+                    current_flags = cell_display_flags;
                 }
 
                 line_content.push(cell.c);
