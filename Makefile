@@ -1,4 +1,5 @@
 .PHONY: help build clean
+.PHONY: install-all
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
@@ -12,6 +13,7 @@
 help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
+	@echo "  make install-all          - Install to all locations (skill, claude, codex, cursor)"
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
@@ -42,6 +44,8 @@ build:
 	@test "$(NAME)" "!=" "Rust" || \
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
+
+install-all: install-skill install-claude install-codex install-cursor ## Install to all locations
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
