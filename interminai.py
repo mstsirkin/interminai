@@ -1252,7 +1252,9 @@ def unescape(s):
 
 def cmd_output(args):
     """Output command - get screen content"""
-    request = {'type': 'OUTPUT'}
+    # Default is color (ansi), --no-color disables it
+    fmt = 'ascii' if args.no_color else 'ansi'
+    request = {'type': 'OUTPUT', 'format': fmt}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1466,6 +1468,9 @@ def main():
     # Output command
     output_parser = subparsers.add_parser('output', help='Get screen output')
     output_parser.add_argument('--socket', required=True, help='Socket path')
+    output_parser.add_argument('--color', action='store_true', help='Enable color output (default)')
+    output_parser.add_argument('--no-color', action='store_true', dest='no_color',
+                               help='Disable color output (for grep/head)')
     output_parser.add_argument('--cursor', default='none', choices=['none', 'print', 'inverse', 'both'],
                                help='Cursor display mode (default: none)')
     output_parser.set_defaults(func=cmd_output)
