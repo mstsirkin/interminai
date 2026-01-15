@@ -106,6 +106,9 @@ fn send_keys(socket: &str, keys: &str) {
 }
 
 fn get_screen(socket: &str) -> String {
+    // Use --no-color because vim outputs syntax highlighting (ANSI color codes).
+    // Tests check for exact text like "Line 3: Third line content [MODIFIED]"
+    // which would fail if color codes are embedded in the output.
     let output = Command::new(interminai_bin())
         .arg("output")
         .arg("--socket")
