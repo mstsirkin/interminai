@@ -61,6 +61,9 @@ impl DaemonHandle {
     }
 
     fn get_output(&self) -> String {
+        // Use --no-color because some tests (e.g., test_csi_repeat_after_sgr) include
+        // SGR sequences in input. Color output would embed ANSI codes in the text,
+        // breaking assertions that check for exact character sequences like "XXXX".
         let output = Command::new(interminai_bin())
             .arg("output")
             .arg("--socket")
