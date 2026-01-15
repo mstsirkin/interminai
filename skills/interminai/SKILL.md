@@ -225,12 +225,13 @@ sleep 0.5
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
 
-**Tip**: Use `--format ansi` to get colored output when editing rebase todo lists.
-Vim's syntax highlighting makes it easier to distinguish pick/squash/edit commands:
+**Tip**: Output includes colors by default. Use `--no-color` when piping to grep/head:
 
 ```bash
-./scripts/interminai output --socket /tmp/interminai-xxx/socket --format ansi
+./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | head -5
 ```
+
+See [reference.md](reference.md) for full command documentation.
 
 ## Password Input
 

@@ -610,3 +610,20 @@ echo "=== Subagent session complete ==="
 - Direct the subagent with "proceed to the next step" when ready to continue
 - For React/Ink-based agents (like cursor-agent), send text and Enter separately with a small delay
 - This enables "LLM supervising LLM" workflows where the main agent controls what actions are allowed
+
+## Example 11: Using --no-color with grep/head
+
+Output includes ANSI color codes by default. Use `--no-color` when piping to tools like `grep` or `head`:
+
+```bash
+# Get first 5 lines without color codes
+./scripts/interminai output --socket "$SOCK" --no-color | head -5
+
+# Search for a pattern in the output
+./scripts/interminai output --socket "$SOCK" --no-color | grep "error"
+
+# Check if a prompt appears
+if ./scripts/interminai output --socket "$SOCK" --no-color | grep -q "password"; then
+    echo "Password prompt detected"
+fi
+```

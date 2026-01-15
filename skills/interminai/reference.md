@@ -118,13 +118,12 @@ printf 'Hello\n' | interminai input --socket /tmp/vim.sock
 Get the current screen contents.
 
 ```bash
-interminai output --socket PATH [--format FORMAT] [--cursor MODE]
+interminai output --socket PATH [--color] [--no-color] [--cursor MODE]
 ```
 
 **Options:**
-- `--format FORMAT` - Output format (default: ascii)
-  - `ascii` - Plain text, no color codes (default)
-  - `ansi` - Text with ANSI color/attribute escape codes
+- `--color` - Enable color output with ANSI escape codes (default)
+- `--no-color` - Disable color output, plain text only (use for grep/head)
 - `--cursor MODE` - Cursor display mode (default: none)
   - `none` - No cursor indication (default)
   - `print` - Show "Cursor: row X, col Y" before screen output (1-based)
@@ -133,7 +132,7 @@ interminai output --socket PATH [--format FORMAT] [--cursor MODE]
 
 **Output:** Terminal screen content (rows × columns).
 
-**Example output (default):**
+**Example output (default, with colors):**
 ```
 Hello World
 ~
@@ -160,27 +159,27 @@ Hello World
 - Use `--cursor both` when you want both textual and visual confirmation
 - Most applications (bash, TUI apps) don't show cursor position on screen, so cursor flags are helpful for knowing where input will go
 
-**Color output (`--format ansi`):**
+**Using --no-color for grep/head:**
 
-When using `--format ansi`, the output includes ANSI escape codes for colors and text attributes:
+Use `--no-color` when piping output to tools that don't handle ANSI escape codes:
 
 ```bash
-# Get colored output
-interminai output --socket /tmp/app.sock --format ansi
+# Get first 5 lines without color codes
+interminai output --socket /tmp/app.sock --no-color | head -5
+
+# Search for a pattern
+interminai output --socket /tmp/app.sock --no-color | grep "error"
 ```
 
-Example output (raw):
-```
-\e[0;31mError:\e[0m File not found
-\e[1;32mSuccess\e[0m
-```
+**Color output details:**
 
+Default output includes ANSI escape codes for colors and text attributes.
 Supported attributes:
 - Foreground/background colors (named, 256-color, 24-bit RGB)
 - Bold, dim, italic, underline, inverse, strikethrough
 
-**Note:** To get colors, start interminai with `--emulator xterm` (default). If
-using `--emulator custom` you will get plain text even with `--format ansi`.
+**Note:** Colors require `--emulator xterm` (default). With `--emulator custom`
+you get plain text regardless of the --color flag.
 
 ## interminai status
 
