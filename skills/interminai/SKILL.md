@@ -49,7 +49,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 
 - `start -- COMMAND` - Start application (prints socket path on stdout)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
-- `output --socket PATH` - Get screen (add `--cursor print` for cursor position)
+- `output --socket PATH` - Get screen (80x25 by default, add `--cursor print` for cursor position)
 - `status --socket PATH` - Check running state and activity flag
 - `status --socket PATH --quiet` - Check if running (exit 0) or exited (exit 1, prints exit code)
 - `wait --socket PATH` - Wait for activity (any output), prints activity and exit status
@@ -65,6 +65,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
 7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH` instead of repeatedly calling `output`
+8. **Output is limited**: No need to pipe to head/tail - output always ever gives you one screen. 25 lines by default.
 
 ## Checking Activity (Recommended for LLMs)
 
