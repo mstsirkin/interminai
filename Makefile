@@ -3,7 +3,7 @@
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
-.PHONY: install-mcp install-mcp-rust install-mcp-python install-cursor
+.PHONY: install-mcp install-mcp-rust install-mcp-python install-cursor install-gemini
 .PHONY: install-tool-rust install-tool-python
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
@@ -27,6 +27,7 @@ help: ## Show this help message
 	@echo "  make install-mcp-rust    - Install Rust MCP server"
 	@echo "  make install-mcp-python  - Install Python MCP server"
 	@echo "  make install-cursor      - Install MCP server and configure cursor-agent"
+	@echo "  make install-gemini      - Install MCP server and configure Gemini CLI"
 	@echo "  make test                 - Run all tests (both emulators, both implementations)"
 	@echo "  make test-rust            - Run Rust tests with both emulators"
 	@echo "  make test-python          - Run Python tests with both emulators"
@@ -45,7 +46,7 @@ build:
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
 
-install-all: install-skill install-claude install-codex install-cursor ## Install to all locations
+install-all: install-skill install-claude install-codex install-cursor install-gemini ## Install to all locations
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
@@ -119,6 +120,9 @@ install-cursor: install-mcp ## Install MCP server and configure cursor-agent
 	fi
 	@echo ""
 	@echo "Enable with: cursor-agent mcp enable interminai"
+
+install-gemini: install-mcp ## Install MCP server and configure Gemini CLI
+	@gemini mcp add interminai $(HOME)/.mcp/skills/interminai/mcp_server.py --scope user
 
 install-atomic: build
 	@test -n "$(DST)"
