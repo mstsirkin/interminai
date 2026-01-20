@@ -140,6 +140,18 @@ enum Commands {
         /// Quiet mode: wait for exit only, print exit code
         #[arg(long)]
         quiet: bool,
+
+        /// Wait until content of this line number changes (1-based)
+        #[arg(long = "line", value_name = "LINE")]
+        line: Option<usize>,
+
+        /// With --line: wait until line does NOT contain this pattern
+        #[arg(long = "not-contains", value_name = "PATTERN")]
+        not_contains: Option<String>,
+
+        /// With --line: wait until line contains this pattern
+        #[arg(long = "contains", value_name = "PATTERN")]
+        contains: Option<String>,
     },
 
     /// Send signal to running process
@@ -1327,31 +1339,129 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Wait { socket, quiet } => {
-            let request = serde_json::json!({
-                "type": "WAIT",
-                "activity": !quiet
-            });
+        Commands::Wait { socket, quiet, line, not_contains, contains } => {
+            if let Some(line_num) = line {
+                // --line mode: wait until specified line matches condition
+                if line_num == 0 {
+                    eprintln!("Error: line number must be 1 or greater (1-based)");
+                    std::process::exit(1);
+                }
 
-            let response = send_request(&socket, request)?;
-
-            if response.status == "error" {
-                eprintln!("Error: {}", response.error.unwrap_or_default());
-                std::process::exit(1);
-            }
-
-            if let Some(data) = response.data {
-                if quiet {
-                    // Quiet mode: just print exit code
-                    if let Some(exit_code) = data.get("exit_code") {
-                        println!("{}", exit_code);
+                // Helper to get a specific line from screen
+                fn get_line(socket: &str, line_num: usize) -> Result<String> {
+                    let request = serde_json::json!({
+                        "type": "OUTPUT",
+                        "format": "ascii"
+                    });
+                    let response = send_request(socket, request)?;
+                    if response.status == "error" {
+                        bail!("Failed to get output: {}", response.error.unwrap_or_default());
                     }
+                    if let Some(data) = response.data {
+                        if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
+                            let lines: Vec<&str> = screen.lines().collect();
+                            // line_num is 1-based, convert to 0-based index
+                            let idx = line_num - 1;
+                            if idx < lines.len() {
+                                return Ok(lines[idx].to_string());
+                            } else {
+                                return Ok(String::new()); // Line doesn't exist yet
+                            }
+                        }
+                    }
+                    Ok(String::new())
+                }
+
+                // Determine wait mode based on flags
+                let wait_mode = match (&not_contains, &contains) {
+                    (Some(pattern), None) => ("not_contains", pattern.clone()),
+                    (None, Some(pattern)) => ("contains", pattern.clone()),
+                    (Some(_), Some(_)) => {
+                        eprintln!("Error: --not-contains and --contains are mutually exclusive");
+                        std::process::exit(1);
+                    }
+                    (None, None) => ("change", String::new()),
+                };
+
+                // Get initial line content (only needed for "change" mode)
+                let initial_line = if wait_mode.0 == "change" {
+                    get_line(&socket, line_num)?
                 } else {
-                    // Default mode: report both terminal activity and exit status
-                    let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let has_exited = data.get("exited").and_then(|v| v.as_bool()).unwrap_or(false);
-                    println!("Terminal activity: {}", if has_activity { "true" } else { "false" });
-                    println!("Application exited: {}", if has_exited { "true" } else { "false" });
+                    String::new()
+                };
+
+                // Check condition on current line
+                let check_condition = |line: &str| -> bool {
+                    match wait_mode.0 {
+                        "not_contains" => !line.contains(&wait_mode.1),
+                        "contains" => line.contains(&wait_mode.1),
+                        "change" => line != &initial_line,
+                        _ => false,
+                    }
+                };
+
+                // Check if condition is already met
+                let current_line = get_line(&socket, line_num)?;
+                if check_condition(&current_line) {
+                    println!("Condition already met on line {}", line_num);
+                } else {
+                    // Wait loop
+                    loop {
+                        // Wait for activity
+                        let wait_request = serde_json::json!({
+                            "type": "WAIT",
+                            "activity": true
+                        });
+                        let wait_response = send_request(&socket, wait_request)?;
+
+                        if wait_response.status == "error" {
+                            eprintln!("Error: {}", wait_response.error.unwrap_or_default());
+                            std::process::exit(1);
+                        }
+
+                        // Check if process exited
+                        if let Some(data) = &wait_response.data {
+                            if data.get("exited").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                println!("Application exited");
+                                break;
+                            }
+                        }
+
+                        // Check condition
+                        let current_line = get_line(&socket, line_num)?;
+                        if check_condition(&current_line) {
+                            println!("Condition met on line {}", line_num);
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // Original behavior: single wait
+                let request = serde_json::json!({
+                    "type": "WAIT",
+                    "activity": !quiet
+                });
+
+                let response = send_request(&socket, request)?;
+
+                if response.status == "error" {
+                    eprintln!("Error: {}", response.error.unwrap_or_default());
+                    std::process::exit(1);
+                }
+
+                if let Some(data) = response.data {
+                    if quiet {
+                        // Quiet mode: just print exit code
+                        if let Some(exit_code) = data.get("exit_code") {
+                            println!("{}", exit_code);
+                        }
+                    } else {
+                        // Default mode: report both terminal activity and exit status
+                        let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let has_exited = data.get("exited").and_then(|v| v.as_bool()).unwrap_or(false);
+                        println!("Terminal activity: {}", if has_activity { "true" } else { "false" });
+                        println!("Application exited: {}", if has_exited { "true" } else { "false" });
+                    }
                 }
             }
         }
