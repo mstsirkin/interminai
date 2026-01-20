@@ -54,6 +54,9 @@ Just read the socket path from the `start` output and use it directly - no need 
 - `status --socket PATH --quiet` - Check if running (exit 0) or exited (exit 1, prints exit code)
 - `wait --socket PATH` - Wait for activity (any output), prints activity and exit status
 - `wait --socket PATH --quiet` - Wait for process to exit (prints exit code)
+- `wait --socket PATH --line N` - Wait until line N changes (1-based)
+- `wait --socket PATH --line N --not-contains PATTERN` - Wait until line N does NOT contain PATTERN
+- `wait --socket PATH --line N --contains PATTERN` - Wait until line N contains PATTERN
 - `stop --socket PATH` - Stop session (also cleans up auto-generated socket)
 
 ## Key Best Practices
@@ -96,6 +99,61 @@ sleep 0.5
 This avoids repeatedly calling `output` when nothing has changed, saving context window
 space and reducing noise. The activity flag is set when PTY output is received and
 cleared by `status` or `wait`.
+
+## Waiting for CLI LLM Idle State (cursor-agent, codex, etc.)
+
+When supervising CLI LLMs like cursor-agent, you need to detect when they finish
+processing and are waiting for input.
+
+**The Problem**: CLI LLMs show different UI states:
+- **Busy**: Shows "ctrl+c to stop" on the input line while generating
+- **Idle**: Shows input prompt with `→`, no "ctrl+c to stop"
+- **Approval prompt**: Shows "Run this command?" dialog, waiting for y/n
+
+**Detection Strategy** (line-based wait):
+
+1. Find the line number containing the input prompt (e.g., line with `ctrl+c to stop`)
+2. Wait until that line no longer contains `ctrl+c to stop`
+
+**Example: Supervising cursor-agent**
+
+```bash
+# Start cursor-agent
+./scripts/interminai start --size 120x40 -- cursor-agent
+# Output: Socket: /tmp/interminai-xxx/socket
+
+SOCK=/tmp/interminai-xxx/socket
+
+# Send a prompt
+./scripts/interminai input --socket $SOCK --text 'Write hello world in Python'
+sleep 0.1
+./scripts/interminai input --socket $SOCK --text '\r'
+
+# Find the line with ctrl+c to stop (the input prompt line during generation)
+# This line number may vary based on screen content
+./scripts/interminai output --socket $SOCK --no-color > /tmp/screen.txt
+INPUT_LINE=$(grep -n 'ctrl+c to stop' /tmp/screen.txt | head -1 | cut -d: -f1)
+
+# Wait for that line to no longer contain 'ctrl+c to stop'
+timeout 120 ./scripts/interminai wait --socket $SOCK \
+  --line $INPUT_LINE --not-contains 'ctrl+c to stop'
+
+# Now cursor-agent is idle (or showing approval prompt), check output
+SCREEN=$(./scripts/interminai output --socket $SOCK --no-color)
+
+# Check what state we're in
+if echo "$SCREEN" | grep -q 'Run this command?'; then
+  # Approval prompt - approve with 'y' or skip with 'n'
+  ./scripts/interminai input --socket $SOCK --text 'y'
+else
+  # Idle - ready for next command
+  echo "cursor-agent is idle"
+fi
+```
+
+**Why line-based?** The input line number stays relatively stable during generation.
+Waiting for that specific line to change avoids false positives from pattern matches
+elsewhere on screen.
 
 ## Terminal Size
 

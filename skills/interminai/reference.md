@@ -218,14 +218,18 @@ fi
 
 ## interminai wait
 
-Block until the child process exits, or until activity occurs.
+Block until the child process exits, activity occurs, or a line condition is met.
 
 ```bash
-interminai wait --socket PATH [--quiet]
+interminai wait --socket PATH [--quiet] [--line LINE] \
+  [--contains PATTERN] [--not-contains PATTERN]
 ```
 
 **Options:**
 - `--quiet` - Wait for exit only, print exit code
+- `--line LINE` - Wait until line number changes (1-based), can combine with:
+  - `--contains PATTERN` - Wait until line contains PATTERN
+  - `--not-contains PATTERN` - Wait until line does NOT contain PATTERN
 
 **Default output:**
 Reports both terminal activity and exit status:
@@ -249,11 +253,21 @@ interminai wait --socket /tmp/app.sock
 # Wait for process to exit only
 interminai wait --socket /tmp/vim.sock --quiet
 echo "Vim exited with code: $?"
+
+# Wait for line 10 to change
+interminai wait --socket /tmp/app.sock --line 10
+
+# Wait for line 15 to contain 'Ready'
+interminai wait --socket /tmp/app.sock --line 15 --contains 'Ready'
+
+# Wait for line 20 to no longer contain 'Loading'
+interminai wait --socket /tmp/app.sock --line 20 --not-contains 'Loading'
 ```
 
 **Wait triggers:**
 - Any output received from the PTY (the application printed something)
 - Child process exited
+- Line condition met (with --line flags)
 
 **Use cases for default mode:**
 - Detect when a long-running command finishes or produces output
@@ -262,6 +276,10 @@ echo "Vim exited with code: $?"
 
 **Use cases for --quiet mode:**
 - Solely wait for program to exit, ignoring its output
+
+**Use cases for --line modes:**
+- Wait for CLI LLMs (cursor-agent, codex) to finish processing
+- Wait for specific line content to change or match a pattern
 
 
 ## interminai kill
