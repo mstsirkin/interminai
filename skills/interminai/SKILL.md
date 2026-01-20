@@ -105,10 +105,20 @@ cleared by `status` or `wait`.
 When supervising CLI LLMs like cursor-agent, you need to detect when they finish
 processing and are waiting for input.
 
-**The Problem**: CLI LLMs show different UI states:
-- **Busy**: Shows "ctrl+c to stop" on the input line while generating
-- **Idle**: Shows input prompt with `→`, no "ctrl+c to stop"
-- **Approval prompt**: Shows "Run this command?" dialog, waiting for y/n
+**Busy/Idle Indicators by CLI LLM:**
+
+| CLI | Busy Pattern | Idle Pattern |
+|-----|-------------|--------------|
+| **cursor-agent** | `ctrl+c to stop` on input line | `→ Add a follow-up` |
+| **codex** | `• Working (Ns • esc to interrupt)` | `›` prompt, "100% context left" |
+| **gemini** | `⠋ <action> (esc to cancel, Ns)` | `>` in input box |
+| **claude** | `✶ <word>… (ctrl+c to interrupt · Ns)` | `❯` prompt |
+
+**Approval prompts:**
+- **cursor-agent**: "Run this command?" dialog
+- **codex**: Shows command and waits for y/n
+- **gemini**: "Allow execution of: ..." modal with options
+- **claude**: Permission prompts (unless using --dangerously-skip-permissions)
 
 **Detection Strategy** (line-based wait):
 
