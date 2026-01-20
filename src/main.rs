@@ -1169,6 +1169,11 @@ mod tests {
 }
 
 fn main() -> Result<()> {
+    // Ignore SIGPIPE to prevent panic when piping to commands like `head`
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
