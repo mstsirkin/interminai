@@ -1369,25 +1369,91 @@ def cmd_stop(args):
 
 def cmd_wait(args):
     """Wait command - wait for program to exit or activity"""
-    request = {'type': 'WAIT', 'data': {'activity': not args.quiet}}
-    response = send_request(args.socket, request)
+    line = getattr(args, 'line', None)
+    contains = getattr(args, 'contains', None)
+    not_contains = getattr(args, 'not_contains', None)
 
-    if response['status'] == 'error':
-        print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
-        sys.exit(1)
+    if line is not None:
+        # --line mode: wait until specified line matches condition
+        if line <= 0:
+            print("Error: line number must be 1 or greater (1-based)", file=sys.stderr)
+            sys.exit(1)
 
-    data = response['data']
-    if args.quiet:
-        # Quiet mode: just print exit code
-        if data.get('exit_code') is not None:
-            print(data['exit_code'])
-            sys.exit(0)
+        if contains and not_contains:
+            print("Error: --contains and --not-contains are mutually exclusive", file=sys.stderr)
+            sys.exit(1)
+
+        def get_line(socket_path, line_num):
+            """Get a specific line from screen"""
+            request = {'type': 'OUTPUT', 'data': {'format': 'ascii'}}
+            response = send_request(socket_path, request)
+            if response['status'] == 'error':
+                return ''
+            screen = response['data'].get('screen', '')
+            lines = screen.split('\n')
+            idx = line_num - 1  # Convert to 0-based
+            if idx < len(lines):
+                return lines[idx]
+            return ''
+
+        def check_condition(line):
+            """Check if condition is met"""
+            if not_contains:
+                return not_contains not in line
+            elif contains:
+                return contains in line
+            else:
+                # Change mode: compare with initial
+                return line != initial_line
+
+        # Get initial line content (for change mode)
+        initial_line = get_line(args.socket, line) if not contains and not not_contains else ''
+
+        # Check if condition is already met
+        current_line = get_line(args.socket, line)
+        if check_condition(current_line):
+            print(f"Condition already met on line {line}")
+            return
+
+        # Wait loop
+        while True:
+            request = {'type': 'WAIT', 'data': {'activity': True}}
+            response = send_request(args.socket, request)
+
+            if response['status'] == 'error':
+                print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
+                sys.exit(1)
+
+            data = response['data']
+            if data.get('exited', False):
+                print("Application exited")
+                break
+
+            current_line = get_line(args.socket, line)
+            if check_condition(current_line):
+                print(f"Condition met on line {line}")
+                break
     else:
-        # Default mode: report both terminal activity and exit status
-        has_activity = data.get('activity', False)
-        has_exited = data.get('exited', False)
-        print(f"Terminal activity: {'true' if has_activity else 'false'}")
-        print(f"Application exited: {'true' if has_exited else 'false'}")
+        # Original behavior: single wait
+        request = {'type': 'WAIT', 'data': {'activity': not args.quiet}}
+        response = send_request(args.socket, request)
+
+        if response['status'] == 'error':
+            print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)
+            sys.exit(1)
+
+        data = response['data']
+        if args.quiet:
+            # Quiet mode: just print exit code
+            if data.get('exit_code') is not None:
+                print(data['exit_code'])
+                sys.exit(0)
+        else:
+            # Default mode: report both terminal activity and exit status
+            has_activity = data.get('activity', False)
+            has_exited = data.get('exited', False)
+            print(f"Terminal activity: {'true' if has_activity else 'false'}")
+            print(f"Application exited: {'true' if has_exited else 'false'}")
 
 
 def cmd_kill(args):
@@ -1499,6 +1565,12 @@ def main():
     wait_parser.add_argument('--socket', required=True, help='Socket path')
     wait_parser.add_argument('--quiet', action='store_true',
                              help='Wait for exit only, print exit code')
+    wait_parser.add_argument('--line', type=int, metavar='LINE',
+                             help='Wait until line number changes (1-based)')
+    wait_parser.add_argument('--contains', metavar='PATTERN',
+                             help='With --line: wait until line contains PATTERN')
+    wait_parser.add_argument('--not-contains', metavar='PATTERN',
+                             help='With --line: wait until line does NOT contain PATTERN')
     wait_parser.set_defaults(func=cmd_wait)
 
     # Kill command
