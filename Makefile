@@ -3,7 +3,9 @@
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
-.PHONY: install-mcp install-mcp-rust install-mcp-python install-cursor install-gemini
+.PHONY: install-cursor install-cursor-rust install-cursor-python
+.PHONY: install-gemini install-gemini-rust install-gemini-python
+.PHONY: install-mcp install-mcp-rust install-mcp-python install-mcp-cursor install-mcp-gemini
 .PHONY: install-tool-rust install-tool-python
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
@@ -13,7 +15,7 @@
 help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make install-all          - Install to all locations (skill, claude, codex, cursor)"
+	@echo "  make install-all          - Install skills to all locations (skill, claude, codex, cursor, gemini)"
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
@@ -23,11 +25,17 @@ help: ## Show this help message
 	@echo "  make install-codex       - Install Rust skill to ~/.codex/skills/ for Codex (default)"
 	@echo "  make install-codex-rust  - Install Rust skill to ~/.codex/skills/ for Codex"
 	@echo "  make install-codex-python - Install Python skill to ~/.codex/skills/ for Codex"
+	@echo "  make install-cursor       - Install Rust skill to ~/.cursor/skills/ for cursor-agent (default)"
+	@echo "  make install-cursor-rust  - Install Rust skill to ~/.cursor/skills/ for cursor-agent"
+	@echo "  make install-cursor-python - Install Python skill to ~/.cursor/skills/ for cursor-agent"
+	@echo "  make install-gemini       - Install Rust skill to ~/.gemini/skills/ for Gemini CLI (default)"
+	@echo "  make install-gemini-rust  - Install Rust skill to ~/.gemini/skills/ for Gemini CLI"
+	@echo "  make install-gemini-python - Install Python skill to ~/.gemini/skills/ for Gemini CLI"
 	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ (manual config)"
 	@echo "  make install-mcp-rust    - Install Rust MCP server"
 	@echo "  make install-mcp-python  - Install Python MCP server"
-	@echo "  make install-cursor      - Install MCP server and configure cursor-agent"
-	@echo "  make install-gemini      - Install MCP server and configure Gemini CLI"
+	@echo "  make install-mcp-cursor  - Install MCP server and configure cursor-agent"
+	@echo "  make install-mcp-gemini  - Install MCP server and configure Gemini CLI"
 	@echo "  make test                 - Run all tests (both emulators, both implementations)"
 	@echo "  make test-rust            - Run Rust tests with both emulators"
 	@echo "  make test-python          - Run Python tests with both emulators"
@@ -46,7 +54,7 @@ build:
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
 
-install-all: install-skill install-claude install-codex install-cursor install-gemini ## Install to all locations
+install-all: install-skill install-claude install-codex install-cursor install-gemini ## Install skills to all locations
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
@@ -87,6 +95,20 @@ install-codex-rust: install-tool-rust
 install-codex-python: TOOL = codex
 install-codex-python: install-tool-python
 
+install-cursor: install-cursor-rust ## Install Rust skill to ~/.cursor/skills/ for cursor-agent
+
+install-cursor-rust: TOOL = cursor
+install-cursor-rust: install-tool-rust
+install-cursor-python: TOOL = cursor
+install-cursor-python: install-tool-python
+
+install-gemini: install-gemini-rust ## Install Rust skill to ~/.gemini/skills/ for Gemini CLI
+
+install-gemini-rust: TOOL = gemini
+install-gemini-rust: install-tool-rust
+install-gemini-python: TOOL = gemini
+install-gemini-python: install-tool-python
+
 install-mcp: install-mcp-rust ## Install MCP server to ~/.mcp/skills/ for cursor-agent
 
 install-mcp-rust: NAME = Rust
@@ -103,9 +125,9 @@ install-mcp-impl: install-atomic
 	@chmod +x $(DST)/interminai/mcp_server.py
 	@echo ""
 	@echo "MCP server installed to $(DST)/interminai/"
-	@echo "Run 'make install-cursor' to configure cursor-agent automatically."
+	@echo "To configure a specific tool, run: make install-mcp-cursor or make install-mcp-gemini"
 
-install-cursor: install-mcp ## Install MCP server and configure cursor-agent
+install-mcp-cursor: install-mcp ## Install MCP server and configure cursor-agent
 	@mkdir -p ~/.cursor
 	@MCP_JSON=~/.cursor/mcp.json; \
 	MCP_PATH="$(HOME)/.mcp/skills/interminai/mcp_server.py"; \
@@ -121,7 +143,7 @@ install-cursor: install-mcp ## Install MCP server and configure cursor-agent
 	@echo ""
 	@echo "Enable with: cursor-agent mcp enable interminai"
 
-install-gemini: install-mcp ## Install MCP server and configure Gemini CLI
+install-mcp-gemini: install-mcp ## Install MCP server and configure Gemini CLI
 	@gemini mcp add interminai $(HOME)/.mcp/skills/interminai/mcp_server.py --scope user
 
 install-atomic: build
