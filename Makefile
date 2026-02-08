@@ -151,7 +151,8 @@ install-atomic: build
 	@mkdir -p $(DST)-backup
 	@mkdir -p $(DST)/interminai
 	@TMPDIR=$$(mktemp -d $(DST)-backup/XXXXXX) && \
-		cp -r skills/interminai "$$TMPDIR/interminai" && \
+		mkdir -p "$$TMPDIR/interminai/scripts" && \
+		cp skills/interminai/*.md "$$TMPDIR/interminai/" && \
 		test -n "$(SRC)" && cp $(SRC) "$$TMPDIR/interminai/scripts/interminai"; \
 		mkdir -p $(DST) && \
 		mv --exchange "$$TMPDIR/interminai" $(DST) && \
