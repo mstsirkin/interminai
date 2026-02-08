@@ -41,6 +41,18 @@ Many powerful CLI tools require human interaction - vim waits for keystrokes, `g
 
 ## Installation
 
+### Quick Install
+
+```bash
+npx skills add mstsirkin/interminai
+```
+
+Works with Claude Code, Cursor, Codex, Gemini CLI, GitHub Copilot, and
+other skills-compatible agents. Tested on Linux but should work on any
+Unix-like OS (Linux, macOS, or Windows Subsystem for Linux).
+
+### Manual Install
+
 interminai is available in two implementations with identical functionality:
 
 - **Rust** (recommended) - Fast, zero dependencies, single binary
