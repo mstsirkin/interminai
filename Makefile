@@ -25,9 +25,9 @@ help: ## Show this help message
 	@echo "  make install-codex       - Install Rust skill to ~/.codex/skills/ for Codex (default)"
 	@echo "  make install-codex-rust  - Install Rust skill to ~/.codex/skills/ for Codex"
 	@echo "  make install-codex-python - Install Python skill to ~/.codex/skills/ for Codex"
-	@echo "  make install-cursor       - Install Rust skill to ~/.cursor/skills/ for cursor-agent (default)"
-	@echo "  make install-cursor-rust  - Install Rust skill to ~/.cursor/skills/ for cursor-agent"
-	@echo "  make install-cursor-python - Install Python skill to ~/.cursor/skills/ for cursor-agent"
+	@echo "  make install-cursor       - Install for cursor-agent (MCP server + skill, recommended)"
+	@echo "  make install-cursor-rust  - Install Rust skill only to ~/.cursor/skills/"
+	@echo "  make install-cursor-python - Install Python skill only to ~/.cursor/skills/"
 	@echo "  make install-gemini       - Install Rust skill to ~/.gemini/skills/ for Gemini CLI (default)"
 	@echo "  make install-gemini-rust  - Install Rust skill to ~/.gemini/skills/ for Gemini CLI"
 	@echo "  make install-gemini-python - Install Python skill to ~/.gemini/skills/ for Gemini CLI"
@@ -95,7 +95,7 @@ install-codex-rust: install-tool-rust
 install-codex-python: TOOL = codex
 install-codex-python: install-tool-python
 
-install-cursor: install-cursor-rust ## Install Rust skill to ~/.cursor/skills/ for cursor-agent
+install-cursor: install-cursor-rust install-mcp-cursor ## Install for cursor-agent (MCP + skill)
 
 install-cursor-rust: TOOL = cursor
 install-cursor-rust: install-tool-rust
@@ -140,8 +140,12 @@ install-mcp-cursor: install-mcp ## Install MCP server and configure cursor-agent
 		python3 -c "import json; f='$$MCP_JSON'; d=json.load(open(f)); d.setdefault('mcpServers',{})['interminai']={'command':'$$MCP_PATH'}; json.dump(d,open(f,'w'),indent=2)"; \
 		echo "Added interminai to $$MCP_JSON"; \
 	fi
-	@echo ""
-	@echo "Enable with: cursor-agent mcp enable interminai"
+	@if command -v cursor-agent >/dev/null 2>&1; then \
+		cursor-agent mcp enable interminai 2>/dev/null && \
+		echo "MCP server enabled for cursor-agent"; \
+	else \
+		echo "Enable with: cursor-agent mcp enable interminai"; \
+	fi
 
 install-mcp-gemini: install-mcp ## Install MCP server and configure Gemini CLI
 	@gemini mcp add interminai $(HOME)/.mcp/skills/interminai/mcp_server.py --scope user
