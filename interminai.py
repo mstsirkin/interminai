@@ -982,8 +982,8 @@ def handle_running(activity_mode, state):
     running = state.exit_code is None
 
     if activity_mode:
-        activity = state.activity
-        state.activity = False  # Clear the flag after reading
+        activity = state.screen.activity
+        state.screen.activity = False  # Clear the flag after reading
         data = {
             'running': running,
             'activity': activity
