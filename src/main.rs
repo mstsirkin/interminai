@@ -108,6 +108,10 @@ enum Commands {
         #[arg(long)]
         no_color: bool,
 
+        /// Number all output lines (zero-padded, 1-based)
+        #[arg(short = 'n', long = "number")]
+        number: bool,
+
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
         cursor: String,
@@ -1253,7 +1257,7 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, cursor } => {
+        Commands::Output { socket, color, no_color, number, cursor } => {
             // Default is color (ansi), --no-color disables it
             let format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
@@ -1285,14 +1289,24 @@ fn main() -> Result<()> {
 
                 if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
                     // Apply inverse video if requested
-                    if cursor_mode == "inverse" || cursor_mode == "both" {
+                    let screen = if cursor_mode == "inverse" || cursor_mode == "both" {
                         if let (Some(cursor_row), Some(cursor_col)) = (
                             data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
                             data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
                         ) {
-                            print!("{}", apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize));
+                            apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize)
                         } else {
-                            print!("{}", screen);
+                            screen.to_string()
+                        }
+                    } else {
+                        screen.to_string()
+                    };
+
+                    if number {
+                        let lines: Vec<&str> = screen.lines().collect();
+                        let width = lines.len().to_string().len();
+                        for (i, line) in lines.iter().enumerate() {
+                            println!("{:0>width$}\t{}", i + 1, line, width = width);
                         }
                     } else {
                         print!("{}", screen);
