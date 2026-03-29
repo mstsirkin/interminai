@@ -1279,8 +1279,14 @@ def cmd_output(args):
         cursor_row = cursor.get('row', 0)
         cursor_col = cursor.get('col', 0)
         screen = apply_cursor_inverse(screen, cursor_row, cursor_col)
-    
-    print(screen)
+
+    if args.number:
+        lines = screen.split('\n')
+        width = len(str(len(lines)))
+        for i, line in enumerate(lines, 1):
+            print(f"{i:0{width}d}\t{line}")
+    else:
+        print(screen)
 
 
 def cmd_input(args):
@@ -1537,6 +1543,8 @@ def main():
     output_parser.add_argument('--color', action='store_true', help='Enable color output (default)')
     output_parser.add_argument('--no-color', action='store_true', dest='no_color',
                                help='Disable color output (for grep/head)')
+    output_parser.add_argument('-n', '--number', action='store_true',
+                               help='Number all output lines (zero-padded, 1-based)')
     output_parser.add_argument('--cursor', default='none', choices=['none', 'print', 'inverse', 'both'],
                                help='Cursor display mode (default: none)')
     output_parser.set_defaults(func=cmd_output)

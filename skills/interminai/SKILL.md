@@ -141,29 +141,30 @@ sleep 0.1
 
 # Find the line with ctrl+c to stop (the input prompt line during generation)
 # This line number may vary based on screen content
-./scripts/interminai output --socket $SOCK --no-color > /tmp/screen.txt
-INPUT_LINE=$(grep -n 'ctrl+c to stop' /tmp/screen.txt | head -1 | cut -d: -f1)
+./scripts/interminai output --socket $SOCK -n
+
+#NOTE! look for 'ctrl+c to stop' manually yourself - do not grep or use another
+#tool, you must verify it is the prompt not some random thought or tool output
 
 # Wait for that line to no longer contain 'ctrl+c to stop'
 timeout 120 ./scripts/interminai wait --socket $SOCK \
   --line $INPUT_LINE --not-contains 'ctrl+c to stop'
 
 # Now cursor-agent is idle (or showing approval prompt), check output
-SCREEN=$(./scripts/interminai output --socket $SOCK --no-color)
+#NOTE! look for prompt manually yourself - do not grep or use another
+#tool, you must verify it is the prompt not some random thought or tool output
 
-# Check what state we're in
-if echo "$SCREEN" | grep -q 'Run this command?'; then
-  # Approval prompt - approve with 'y' or skip with 'n'
-  ./scripts/interminai input --socket $SOCK --text 'y'
-else
-  # Idle - ready for next command
+./scripts/interminai output --socket $SOCK
+# if you see 'Run this command?'
+# Approval prompt - approve with 'y' or skip with 'n'
+./scripts/interminai input --socket $SOCK --text 'y'
+# otherwise - Idle - ready for next command
   echo "cursor-agent is idle"
-fi
 ```
 
 **Why line-based?** The input line number stays relatively stable during generation.
-Waiting for that specific line to change avoids false positives from pattern matches
-elsewhere on screen.
+Waiting for that specific line and changing output manually avoids false
+positives from pattern matches elsewhere on screen.
 
 ## Terminal Size
 
@@ -293,14 +294,14 @@ sleep 0.5
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
 
-**Piping output**: By default, output includes colors - do NOT use `--no-color` for normal viewing.
-Only add `--no-color` when piping to grep/head/tail to avoid ANSI escape corruption:
+**Piping output**: By default, output includes colors - DO NOT use `--no-color` for normal viewing.
+ONLY add `--no-color` when piping to grep/head/tail to avoid ANSI escape corruption:
 
 ```bash
 # Normal viewing - no --no-color flag:
 ./scripts/interminai output --socket /tmp/interminai-xxx/socket
 
-# Piping to grep/head/tail - add --no-color:
+# ONLY IF piping to grep/head/tail - add --no-color:
 ./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | grep pattern
 ./scripts/interminai output --socket /tmp/interminai-xxx/socket --no-color | tail -5
 ```
