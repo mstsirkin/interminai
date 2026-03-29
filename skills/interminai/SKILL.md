@@ -294,8 +294,9 @@ sleep 0.5
 ./scripts/interminai wait --socket /tmp/interminai-xxx/socket
 ```
 
-**Piping output**: By default, output includes colors - DO NOT use `--no-color` for normal viewing.
-ONLY add `--no-color` when piping to grep/head/tail to avoid ANSI escape corruption:
+**Never use `--no-color`** unless piping to grep/head/tail. This includes
+when an LLM is reading the output -- colors are shown to the user and help
+distinguish UI elements, prompts, and content on screen.
 
 ```bash
 # Normal viewing - no --no-color flag:
