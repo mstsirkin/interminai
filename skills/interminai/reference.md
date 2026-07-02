@@ -118,7 +118,7 @@ printf 'Hello\n' | interminai input --socket /tmp/vim.sock
 Get the current screen contents.
 
 ```bash
-interminai output --socket PATH [--color] [--no-color] [--cursor MODE] [--scrollback N]
+interminai output --socket PATH [--color] [--no-color] [--cursor MODE] [--from N] [--to N]
 ```
 
 **Options:**
@@ -129,9 +129,11 @@ interminai output --socket PATH [--color] [--no-color] [--cursor MODE] [--scroll
   - `print` - Show "Cursor: row X, col Y" before screen output (1-based)
   - `inverse` - Highlight cursor position with inverse video
   - `both` - Both print and inverse modes
-- `--scrollback N` - Include N lines of scrollback history above the visible screen (default: 0).
-  Use when output has scrolled past the screen (build logs, long command output).
-  Up to 10,000 lines of history are retained.
+- `--from N` - Start output from line N (default: 0 = screen only).
+  Negative = scrollback (e.g., -100 for last 100 scrollback lines).
+  Use `-` for the beginning of the scrollback buffer.
+- `--to N` - End output at line N (default: end of screen).
+  Use 0 for boundary (scrollback only, no screen lines).
 
 **Output:** Terminal screen content (rows × columns).
 

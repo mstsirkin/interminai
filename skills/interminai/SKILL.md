@@ -69,7 +69,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
 7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH` instead of repeatedly calling `output`
 8. **Output is limited**: No need to pipe to head/tail - output always ever gives you one screen. 25 lines by default.
-9. **Use scrollback**: If output scrolled past the screen (build logs, compiler errors, long command output), use `--from -100` to retrieve it. Iterate with larger values if needed.
+9. **Use scrollback if output scrolled off**: Start with `output --from -100 --to 0` to check the last 100 scrollback lines. Need more? `output --from -200 --to -100`, and so on. Keep iterating back in chunks until you find what you need.
 10. **Increase scrollback for heavy output**: If a command will produce a lot of output (e.g., `make`, `cargo build`, `git log`), start the session with `--scrollback 50000` or more.
 
 ## Checking Activity (Recommended for LLMs)
