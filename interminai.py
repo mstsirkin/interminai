@@ -440,11 +440,10 @@ class ExtendedPyteScreen(pyte.Screen):
 
     def _save_scrollback_row(self, row):
         """Save a row to scrollback before it scrolls off"""
-        line = ''
+        chars = []
         for x in range(self.columns):
-            char = self.buffer[row][x]
-            line += char.data
-        self._scrollback.append(line)
+            chars.append(self.buffer[row][x])
+        self._scrollback.append(chars)
 
     def index(self):
         """Override to capture scrollback before scrolling"""
@@ -566,12 +565,43 @@ class PyteScreen:
         start = len(sb) - n
         result = []
         for i in range(start, len(sb)):
-            result.append(sb[i].rstrip())
+            line = ''.join(c.data for c in sb[i]).rstrip()
+            result.append(line)
         return '\n'.join(result) + '\n'
 
     def render_scrollback_ansi(self, lines):
-        """Render scrollback with ANSI - scrollback is plain text only"""
-        return self.render_scrollback(lines)
+        """Render scrollback with ANSI color codes"""
+        sb = self._screen._scrollback
+        n = min(lines, len(sb))
+        if n == 0:
+            return ''
+        start = len(sb) - n
+        result = []
+        for i in range(start, len(sb)):
+            line = self._render_char_row_ansi(sb[i])
+            result.append(line)
+        return '\n'.join(result) + '\n'
+
+    def _render_char_row_ansi(self, chars):
+        """Render a row of pyte Char objects with ANSI codes"""
+        line = ''
+        current_fg = 'default'
+        current_bg = 'default'
+        current_attrs = (False, False, False, False, False, False)
+        for char in chars:
+            attrs = (char.bold, char.italics, char.underscore,
+                     char.strikethrough, char.reverse, char.blink)
+            if char.fg != current_fg or char.bg != current_bg or attrs != current_attrs:
+                sgr = self._build_sgr(char.fg, char.bg, attrs)
+                if sgr:
+                    line += sgr
+                current_fg = char.fg
+                current_bg = char.bg
+                current_attrs = attrs
+            line += char.data
+        if current_fg != 'default' or current_bg != 'default' or any(current_attrs):
+            line += '\x1b[0m'
+        return line.rstrip()
 
     def render(self):
         """Render the screen as a string"""
