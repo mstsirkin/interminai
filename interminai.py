@@ -77,7 +77,7 @@ class DebugBuffer:
 class Screen:
     """Simple terminal emulator screen buffer"""
 
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, scrollback_capacity=10000):
         self.rows = rows
         self.cols = cols
         self.cells = [[' ' for _ in range(cols)] for _ in range(rows)]
@@ -85,13 +85,11 @@ class Screen:
         self.cursor_col = 0
         self.last_char = ' '
         self.debug_buffer = DebugBuffer()
-        # Pending responses to be sent back to the PTY (e.g., for DSR cursor position query)
         self.pending_responses = []
-        # Delayed wrap mode: when true, the next printable character will wrap to next line first
         self.pending_wrap = False
-        # Activity flag: set to True when output is received, cleared by status or wait
         self.activity = False
-        self.scrollback = deque(maxlen=10000)
+        self.scrollback_cap = scrollback_capacity
+        self.scrollback = deque(maxlen=scrollback_capacity)
 
     def scroll_up(self):
         """Scroll screen up by one line"""
@@ -391,6 +389,10 @@ class Screen:
         """Return number of lines in scrollback history"""
         return len(self.scrollback)
 
+    def scrollback_capacity(self):
+        """Return scrollback buffer capacity"""
+        return self.scrollback_cap
+
     def render_scrollback(self, lines):
         """Render N lines of scrollback history as plain text"""
         n = min(lines, len(self.scrollback))
@@ -419,6 +421,7 @@ class ExtendedPyteScreen(pyte.Screen):
         self._last_char = ' '
         self._pending_responses = []
         self._scrollback = deque(maxlen=10000)
+        self._scrollback_cap = 10000
 
     def write_process_input(self, data):
         """Capture responses (DSR, DA1, etc.) that need to be sent back to PTY"""
@@ -514,10 +517,12 @@ class ExtendedPyteStream(pyte.Stream):
 class PyteScreen:
     """Terminal emulator using pyte library"""
 
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, scrollback_capacity=10000):
         self.rows = rows
         self.cols = cols
         self._screen = ExtendedPyteScreen(cols, rows)
+        self._screen._scrollback = deque(maxlen=scrollback_capacity)
+        self._screen._scrollback_cap = scrollback_capacity
         self._stream = ExtendedPyteStream(self._screen)
         # Pyte handles most sequences, so debug buffer will be mostly empty
         self.debug_buffer = DebugBuffer()
@@ -547,6 +552,10 @@ class PyteScreen:
     def scrollback_lines(self):
         """Return number of lines in scrollback history"""
         return len(self._screen._scrollback)
+
+    def scrollback_capacity(self):
+        """Return scrollback buffer capacity"""
+        return self._screen._scrollback_cap
 
     def render_scrollback(self, lines):
         """Render N lines of scrollback history as plain text"""
@@ -691,15 +700,15 @@ class PyteScreen:
 class DaemonState:
     """State for the daemon process"""
 
-    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator='xterm', pty_dump=None):
+    def __init__(self, master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator='xterm', pty_dump=None, scrollback=10000):
         self.master_fd = master_fd
         self.child_pid = child_pid
         self.socket_path = socket_path
         # Select terminal emulator
         if emulator == 'xterm' and PYTE_AVAILABLE:
-            self.screen = PyteScreen(rows, cols)
+            self.screen = PyteScreen(rows, cols, scrollback)
         else:
-            self.screen = Screen(rows, cols)
+            self.screen = Screen(rows, cols, scrollback)
         self.exit_code = None
         self.should_shutdown = False
         self.socket_was_auto_generated = socket_was_auto_generated
@@ -783,7 +792,7 @@ def cmd_start(args):
         print(f"PID: {os.getpid()}")
         print(f"Auto-generated: {socket_was_auto_generated}")
         sys.stdout.flush()
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump, args.scrollback)
     else:
         # Daemonize (double fork)
         pid = os.fork()
@@ -821,10 +830,10 @@ def cmd_start(args):
             os.close(devnull)
 
         # Run daemon
-        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump)
+        run_daemon(socket_path, cols, rows, args.command, socket_was_auto_generated, args.emulator, args.pty_dump, args.scrollback)
 
 
-def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emulator='xterm', pty_dump_path=None):
+def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emulator='xterm', pty_dump_path=None, scrollback=10000):
     """Run the daemon process"""
     # Ignore SIGPIPE in daemon - we handle socket errors via exceptions
     # (main() sets SIGPIPE to SIG_DFL for client commands that pipe to head/less)
@@ -878,7 +887,7 @@ def run_daemon(socket_path, cols, rows, command, socket_was_auto_generated, emul
         pty_dump_file = open(pty_dump_path, 'ab')
 
     # Create state
-    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator, pty_dump_file)
+    state = DaemonState(master_fd, child_pid, socket_path, rows, cols, socket_was_auto_generated, emulator, pty_dump_file, scrollback)
 
     # Create Unix socket
     if os.path.exists(socket_path):
@@ -1016,6 +1025,7 @@ def handle_output(fmt, state, scrollback_n=0):
 
     combined = scrollback_text + screen_text if scrollback_text else screen_text
     scrollback_available = state.screen.scrollback_lines()
+    scrollback_capacity = state.screen.scrollback_capacity()
 
     return {
         'status': 'ok',
@@ -1029,7 +1039,8 @@ def handle_output(fmt, state, scrollback_n=0):
                 'rows': state.screen.rows,
                 'cols': state.screen.cols
             },
-            'scrollback_available': scrollback_available
+            'scrollback_available': scrollback_available,
+            'scrollback_capacity': scrollback_capacity
         }
     }
 
@@ -1324,14 +1335,14 @@ def cmd_output(args):
     """Output command - get screen content"""
     # Default is color (ansi), --no-color disables it
     fmt = 'ascii' if args.no_color else 'ansi'
-    scrollback = getattr(args, 'scrollback', 0)
     from_line = getattr(args, 'from_line', None)
     to_line = getattr(args, 'to_line', None)
 
-    # Request enough scrollback to cover --from
-    scrollback_request = scrollback
+    # Request all available scrollback; --from/--to filters client-side
     if from_line is not None and from_line < 0:
-        scrollback_request = max(scrollback, -from_line)
+        scrollback_request = -from_line
+    else:
+        scrollback_request = 2**31
 
     request = {'type': 'OUTPUT', 'format': fmt, 'scrollback': scrollback_request}
     response = send_request(args.socket, request)
@@ -1652,6 +1663,8 @@ def main():
                               help='Terminal emulator backend')
     start_parser.add_argument('--no-daemon', action='store_true', help='Run in foreground')
     start_parser.add_argument('--pty-dump', help='Dump raw PTY output to this file (for debugging)')
+    start_parser.add_argument('--scrollback', type=int, default=10000,
+                              help='Scrollback buffer capacity in lines (default: 10000)')
     start_parser.add_argument('command', nargs='+', help='Command to run')
     start_parser.set_defaults(func=cmd_start)
 
@@ -1665,8 +1678,6 @@ def main():
                                help='Number all output lines (zero-padded, 1-based)')
     output_parser.add_argument('--cursor', default='none', choices=['none', 'print', 'inverse', 'both'],
                                help='Cursor display mode (default: none)')
-    output_parser.add_argument('--scrollback', type=int, default=1000,
-                               help='Include N lines of scrollback history above the visible screen')
     output_parser.add_argument('--from', type=int, dest='from_line', default=None,
                                help='Start output from this line (negative=scrollback, positive=screen, 0=boundary)')
     output_parser.add_argument('--to', type=int, dest='to_line', default=None,
