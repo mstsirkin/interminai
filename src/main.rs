@@ -120,9 +120,9 @@ enum Commands {
         #[arg(long, default_value = "none")]
         cursor: String,
 
-        /// Start output from this line (negative=scrollback, positive=screen, 0=boundary)
+        /// Start output from this line (negative=scrollback, positive=screen, 0=boundary, "-"=all scrollback)
         #[arg(long, allow_hyphen_values = true)]
-        from: Option<i64>,
+        from: Option<String>,
 
         /// End output at this line (negative=scrollback, positive=screen, 0=boundary)
         #[arg(long, allow_hyphen_values = true)]
@@ -749,20 +749,34 @@ fn handle_input(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 
 fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
     let format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
-    let scrollback_n = data.get("scrollback").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
     let mut state = state.lock().unwrap();
     state.read_pty_output();
+
+    let (rows, cols) = state.terminal.dimensions();
+    let scrollback_available = state.terminal.scrollback_lines();
+    let scrollback_capacity = state.terminal.scrollback_capacity();
+
+    // from: 0/null = boundary (screen line 1), negative = scrollback, "-" = all scrollback
+    // to: null = end of screen, 0 = boundary, negative = scrollback
+    let from_val = match data.get("from") {
+        Some(serde_json::Value::String(s)) if s == "-" => -(scrollback_available as i64),
+        Some(v) => v.as_i64().unwrap_or(0),
+        None => 0,
+    };
+    let to_val: Option<i64> = data.get("to").and_then(|v| v.as_i64());
+
+    let sb_lines = if from_val < 0 { (-from_val) as usize } else { 0 };
 
     let screen_text = match format {
         "ansi" => state.terminal.get_screen_content_ansi(),
         _ => state.terminal.get_screen_content(),
     };
 
-    let scrollback_text = if scrollback_n > 0 {
+    let scrollback_text = if sb_lines > 0 {
         match format {
-            "ansi" => state.terminal.get_scrollback_content_ansi(scrollback_n),
-            _ => state.terminal.get_scrollback_content(scrollback_n),
+            "ansi" => state.terminal.get_scrollback_content_ansi(sb_lines),
+            _ => state.terminal.get_scrollback_content(sb_lines),
         }
     } else {
         String::new()
@@ -774,10 +788,38 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         format!("{}{}", scrollback_text, screen_text)
     };
 
+    // Apply --to filtering if specified
+    let combined = if let Some(to_val) = to_val {
+        let all_lines: Vec<&str> = combined.lines().collect();
+        let sb_count = all_lines.len().saturating_sub(rows);
+        let end_idx = if to_val == 0 {
+            sb_count.saturating_sub(1)
+        } else if to_val < 0 {
+            (sb_count as i64 + to_val).max(0) as usize
+        } else {
+            sb_count + (to_val as usize).saturating_sub(1)
+        };
+        let end_idx = end_idx.min(all_lines.len().saturating_sub(1));
+        let mut result: String = all_lines[..=end_idx].join("\n");
+        result.push('\n');
+        result
+    } else {
+        combined
+    };
+
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
-    let (rows, cols) = state.terminal.dimensions();
-    let scrollback_available = state.terminal.scrollback_lines();
-    let scrollback_capacity = state.terminal.scrollback_capacity();
+
+    // Compute effective from/to for response
+    let effective_from = if from_val < 0 {
+        -(sb_lines.min(scrollback_available) as i64)
+    } else {
+        from_val.max(1)
+    };
+    let effective_to: i64 = if let Some(tv) = to_val {
+        if tv <= 0 { tv } else { tv.min(rows as i64) }
+    } else {
+        rows as i64
+    };
 
     let data = serde_json::json!({
         "screen": combined,
@@ -789,6 +831,8 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
             "rows": rows,
             "cols": cols
         },
+        "from": effective_from,
+        "to": effective_to,
         "scrollback_available": scrollback_available,
         "scrollback_capacity": scrollback_capacity
     });
@@ -1303,20 +1347,19 @@ fn main() -> Result<()> {
             }
         }
         Commands::Output { socket, color, no_color, number, cursor, from, to } => {
-            // Default is color (ansi), --no-color disables it
             let format = if no_color { "ascii" } else { "ansi" };
-            let _ = color; // --color is just for explicitness, default is already color
+            let _ = color;
 
-            // Request all available scrollback; --from/--to filters client-side
-            let scrollback_request = match from {
-                Some(f) if f < 0 => (-f) as usize,
-                _ => usize::MAX,
+            let from_json = match from.as_deref() {
+                None => serde_json::json!(0),
+                Some("-") => serde_json::json!("-"),
+                Some(s) => serde_json::json!(s.parse::<i64>().unwrap_or(0)),
             };
-
             let request = serde_json::json!({
                 "type": "OUTPUT",
                 "format": format,
-                "scrollback": scrollback_request
+                "from": from_json,
+                "to": to
             });
 
             let response = send_request(&socket, request)?;
@@ -1329,7 +1372,6 @@ fn main() -> Result<()> {
             if let Some(data) = response.data {
                 let cursor_mode = cursor.as_str();
 
-                // Print cursor info if requested (convert to 1-based for display)
                 if cursor_mode == "print" || cursor_mode == "both" {
                     if let (Some(cursor_row), Some(cursor_col)) = (
                         data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
@@ -1340,77 +1382,43 @@ fn main() -> Result<()> {
                 }
 
                 if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
-                    let all_lines: Vec<&str> = screen.lines().collect();
-                    let rows = data.get("size").and_then(|s| s.get("rows")).and_then(|v| v.as_u64()).unwrap_or(24) as usize;
-                    let sb_count = all_lines.len().saturating_sub(rows);
+                    let eff_from = data.get("from").and_then(|v| v.as_i64()).unwrap_or(1);
 
-                    // Convert line number (negative=scrollback, positive=screen, 0=boundary) to index
-                    // -1 → sb_count-1, -sb_count → 0, 1 → sb_count, rows → sb_count+rows-1
-                    // 0 in --from → treat as 1, 0 in --to → treat as -1
-                    let line_to_index = |n: i64, is_from: bool| -> usize {
-                        let n = if n == 0 { if is_from { 1 } else { -1 } } else { n };
-                        if n < 0 {
-                            (sb_count as i64 + n).max(0) as usize
+                    // Apply inverse video if requested
+                    let sb_count = if eff_from < 0 { (-eff_from) as usize } else { 0 };
+                    let screen = if cursor_mode == "inverse" || cursor_mode == "both" {
+                        if let (Some(cursor_row), Some(cursor_col)) = (
+                            data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
+                            data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
+                        ) {
+                            apply_cursor_inverse(screen, sb_count + cursor_row as usize, cursor_col as usize)
                         } else {
-                            sb_count + (n as usize).saturating_sub(1)
+                            screen.to_string()
                         }
+                    } else {
+                        screen.to_string()
                     };
 
-                    // Apply --from/--to range filter
-                    let (start_idx, end_idx) = if from.is_some() || to.is_some() {
-                        let s = from.map(|f| line_to_index(f, true)).unwrap_or(0);
-                        let e = to.map(|t| line_to_index(t, false)).unwrap_or(all_lines.len().saturating_sub(1));
-                        (s.min(all_lines.len()), e.min(all_lines.len().saturating_sub(1)))
-                    } else {
-                        (0, all_lines.len().saturating_sub(1))
-                    };
-
-                    if start_idx > end_idx {
-                        // Empty range
-                    } else {
-                        let selected: Vec<&str> = all_lines[start_idx..=end_idx].to_vec();
-
-                        // Apply inverse video if requested
-                        let output_text = if cursor_mode == "inverse" || cursor_mode == "both" {
-                            if let (Some(cursor_row), Some(cursor_col)) = (
-                                data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
-                                data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
-                            ) {
-                                let adjusted_row = (sb_count + cursor_row as usize).saturating_sub(start_idx);
-                                let joined = selected.join("\n");
-                                apply_cursor_inverse(&joined, adjusted_row, cursor_col as usize)
+                    if number {
+                        let lines: Vec<&str> = screen.lines().collect();
+                        // Line numbers from effective from value
+                        // eff_from < 0: starts at eff_from, increments, skips 0
+                        // eff_from > 0: starts at eff_from, increments
+                        let nums: Vec<i64> = (0..lines.len()).map(|i| {
+                            let n = eff_from + i as i64;
+                            if eff_from < 0 && n >= 0 { n + 1 } else { n }
+                        }).collect();
+                        let max_abs = nums.iter().map(|n| n.unsigned_abs()).max().unwrap_or(1);
+                        let width = max_abs.to_string().len();
+                        for (line, num) in lines.iter().zip(nums.iter()) {
+                            if *num < 0 {
+                                println!("-{:0>width$}\t{}", num.unsigned_abs(), line, width = width);
                             } else {
-                                selected.join("\n")
+                                println!(" {:0>width$}\t{}", num, line, width = width);
                             }
-                        } else {
-                            selected.join("\n")
-                        };
-
-                        if number {
-                            // Compute line numbers: index→number mapping
-                            // index < sb_count → -(sb_count - index)
-                            // index >= sb_count → (index - sb_count + 1)
-                            let nums: Vec<i64> = (start_idx..=end_idx).map(|idx| {
-                                if idx < sb_count {
-                                    -((sb_count - idx) as i64)
-                                } else {
-                                    (idx - sb_count + 1) as i64
-                                }
-                            }).collect();
-
-                            let max_abs = nums.iter().map(|n| n.unsigned_abs()).max().unwrap_or(1);
-                            let width = max_abs.to_string().len();
-
-                            for (line, num) in selected.iter().zip(nums.iter()) {
-                                if *num < 0 {
-                                    println!("-{:0>width$}\t{}", num.unsigned_abs(), line, width = width);
-                                } else {
-                                    println!(" {:0>width$}\t{}", num, line, width = width);
-                                }
-                            }
-                        } else {
-                            print!("{}", output_text);
                         }
+                    } else {
+                        print!("{}", screen);
                     }
                 }
             }
