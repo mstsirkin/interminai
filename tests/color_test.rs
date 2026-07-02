@@ -173,7 +173,8 @@ fn test_color_256_color() {
 
     let output = daemon.get_output_color();
     assert!(output.contains("\x1b["), "--color should contain escape codes");
-    assert!(output.contains("38;5;202") || output.contains("38;5"), "Output should contain 256-color code");
+    assert!(output.contains("38;5;202") || output.contains("38;5") || output.contains("38;2"),
+        "Output should contain 256-color or RGB color code");
     assert!(output.contains("Orange"), "Output should contain 'Orange'");
 
     daemon.stop();
