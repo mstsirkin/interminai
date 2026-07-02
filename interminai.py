@@ -1061,25 +1061,33 @@ def handle_input(data, state):
 def handle_running(activity_mode, state):
     """Handle STATUS request"""
     running = state.exit_code is None
+    size_info = {'rows': state.screen.rows, 'cols': state.screen.cols}
+    sb_avail = state.screen.scrollback_lines()
+    sb_cap = state.screen.scrollback_capacity()
 
     if activity_mode:
         activity = state.screen.activity
         state.screen.activity = False  # Clear the flag after reading
         data = {
             'running': running,
-            'activity': activity
+            'activity': activity,
+            'size': size_info,
+            'scrollback_available': sb_avail,
+            'scrollback_capacity': sb_cap
         }
         if state.exit_code is not None:
             data['exit_code'] = state.exit_code
         return {'status': 'ok', 'data': data}
     else:
-        return {
-            'status': 'ok',
-            'data': {
-                'running': running,
-                'exit_code': state.exit_code
-            }
+        data = {
+            'running': running,
+            'size': size_info,
+            'scrollback_available': sb_avail,
+            'scrollback_capacity': sb_cap
         }
+        if state.exit_code is not None:
+            data['exit_code'] = state.exit_code
+        return {'status': 'ok', 'data': data}
 
 
 def handle_stop(state):
@@ -1486,6 +1494,11 @@ def cmd_status(args):
         print(f"Running: {str(running).lower()}")
         activity = data.get('activity', False)
         print(f"Activity: {str(activity).lower()}")
+        size = data.get('size', {})
+        print(f"Size: {size.get('cols', 0)}x{size.get('rows', 0)}")
+        sb_avail = data.get('scrollback_available', 0)
+        sb_cap = data.get('scrollback_capacity', 0)
+        print(f"Scrollback: {sb_avail}/{sb_cap}")
         if not running:
             exit_code = data.get('exit_code')
             if exit_code is not None:
