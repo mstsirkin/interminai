@@ -76,9 +76,13 @@ All responses are JSON objects:
 ```json
 {
   "type": "OUTPUT",
-  "format": "ascii" | "ansi"
+  "format": "ascii" | "ansi",
+  "scrollback": 0
 }
 ```
+
+The `scrollback` field is optional (default: 0). When non-zero, that many lines
+of scrollback history are prepended to the screen content.
 
 **Response (ascii format - default):**
 ```json
@@ -93,7 +97,8 @@ All responses are JSON objects:
     "size": {
       "rows": 24,
       "cols": 80
-    }
+    },
+    "scrollback_available": 150
   }
 }
 ```
@@ -111,7 +116,8 @@ All responses are JSON objects:
     "size": {
       "rows": 24,
       "cols": 80
-    }
+    },
+    "scrollback_available": 150
   }
 }
 ```
@@ -120,6 +126,10 @@ All responses are JSON objects:
 - `ascii`: Plain text, no color codes (default, works with all backends)
 - `ansi`: Text with embedded ANSI escape codes for colors and attributes.
   Supported by Alacritty and pyte backends. Custom backend returns plain text.
+- `scrollback`: Number of scrollback lines to prepend above the visible screen.
+  When non-zero, the `screen` field contains scrollback lines followed by the
+  visible screen content. Up to 10,000 lines of history are retained.
+- `scrollback_available`: Total scrollback lines available (always present).
 
 ---
 
