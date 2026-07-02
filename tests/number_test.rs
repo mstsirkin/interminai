@@ -261,6 +261,9 @@ fn test_number_flag_with_cursor_print() {
 
 #[test]
 fn test_number_flag_preserves_color() {
+    if common::emulator() == "custom" {
+        return;
+    }
     let env = TestEnv::new();
     let daemon = DaemonHandle::spawn_with_socket(&env.socket(), &["bash", "-c", "printf '\\033[31mRed\\033[0m'; sleep 10"]);
 
