@@ -4,7 +4,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 mod common;
-use common::{interminai_bin, emulator_args};
+use common::{interminai_bin, emulator_args, emulator};
 
 struct TestEnv {
     _temp_dir: TempDir,
@@ -394,4 +394,41 @@ fn test_scrollback_zero_matches_default() {
 
     assert_eq!(without, with_zero,
                "scrollback=0 should match default output");
+}
+
+#[test]
+fn test_scrollback_preserves_colors() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+
+    // Print colored lines that will scroll off a 5-line terminal
+    let _daemon = DaemonHandle::spawn_with_socket_and_size(
+        &env.socket(),
+        "80x5",
+        &["bash", "-c", "for i in $(seq 1 10); do printf '\\033[31mRED%d\\033[0m\\n' $i; done; sleep 10"]
+    );
+
+    thread::sleep(Duration::from_millis(800));
+
+    // Get scrollback with color
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&env.socket())
+        .arg("--from")
+        .arg("-5")
+        .arg("--to")
+        .arg("0")
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    println!("=== Scrollback with color ===\n{}", stdout);
+
+    assert!(stdout.contains("RED"), "Scrollback should contain RED text");
+    assert!(stdout.contains("\x1b["), "Scrollback should preserve ANSI color codes");
 }
