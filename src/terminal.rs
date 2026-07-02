@@ -53,6 +53,9 @@ pub trait TerminalEmulator: Send {
     /// Get number of lines available in scrollback history
     fn scrollback_lines(&self) -> usize { 0 }
 
+    /// Get scrollback buffer capacity (max lines)
+    fn scrollback_capacity(&self) -> usize { 0 }
+
     /// Get scrollback content as plain text (most recent `lines` lines before visible screen)
     fn get_scrollback_content(&self, _lines: usize) -> String { String::new() }
 

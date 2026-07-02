@@ -67,11 +67,14 @@ pub struct AlacrittyTerminal {
     responses: Arc<Mutex<Vec<Vec<u8>>>>,
     rows: usize,
     cols: usize,
+    scrollback_cap: usize,
 }
 
 impl AlacrittyTerminal {
-    pub fn new(rows: usize, cols: usize) -> Self {
-        let config = Config::default();
+    pub fn new(rows: usize, cols: usize, scrollback: usize) -> Self {
+        let mut config = Config::default();
+        config.scrolling_history = scrollback;
+        let scrollback_cap = scrollback;
         let dimensions = TermDimensions {
             columns: cols,
             screen_lines: rows,
@@ -87,6 +90,7 @@ impl AlacrittyTerminal {
             responses,
             rows,
             cols,
+            scrollback_cap,
         }
     }
 }
@@ -343,6 +347,10 @@ impl TerminalEmulator for AlacrittyTerminal {
         } else {
             Vec::new()
         }
+    }
+
+    fn scrollback_capacity(&self) -> usize {
+        self.scrollback_cap
     }
 
     fn scrollback_lines(&self) -> usize {

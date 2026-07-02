@@ -72,6 +72,10 @@ enum Commands {
         #[arg(long)]
         pty_dump: Option<String>,
 
+        /// Scrollback buffer capacity in lines (default: 10000)
+        #[arg(long, default_value = "10000")]
+        scrollback: usize,
+
         /// Command to run
         #[arg(required = true, last = true)]
         command: Vec<String>,
@@ -115,10 +119,6 @@ enum Commands {
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
         cursor: String,
-
-        /// Include N lines of scrollback history above the visible screen
-        #[arg(long, default_value = "1000")]
-        scrollback: usize,
 
         /// Start output from this line (negative=scrollback, positive=screen, 0=boundary)
         #[arg(long, allow_hyphen_values = true)]
@@ -241,10 +241,10 @@ impl Response {
 }
 
 // Terminal emulator factory
-fn create_terminal(rows: usize, cols: usize, emulator: Emulator) -> Box<dyn TerminalEmulator> {
+fn create_terminal(rows: usize, cols: usize, emulator: Emulator, scrollback: usize) -> Box<dyn TerminalEmulator> {
     match emulator {
-        Emulator::Xterm => Box::new(alacritty_backend::AlacrittyTerminal::new(rows, cols)),
-        Emulator::Custom => Box::new(custom_screen::CustomScreen::new(rows, cols)),
+        Emulator::Xterm => Box::new(alacritty_backend::AlacrittyTerminal::new(rows, cols, scrollback)),
+        Emulator::Custom => Box::new(custom_screen::CustomScreen::new_with_scrollback(rows, cols, scrollback)),
     }
 }
 
@@ -398,7 +398,7 @@ fn auto_generate_socket_path() -> Result<String> {
     Ok(socket_path)
 }
 
-fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: bool, pty_dump: Option<String>, command: Vec<String>) -> Result<()> {
+fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: bool, pty_dump: Option<String>, scrollback: usize, command: Vec<String>) -> Result<()> {
     let socket_was_auto_generated = socket.is_none();
     let socket_path = match socket {
         Some(path) => path,
@@ -413,7 +413,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
         println!("PID: {}", std::process::id());
         println!("Auto-generated: {}", socket_was_auto_generated);
 
-        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command);
+        return run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, scrollback, command);
     }
 
     // Double-fork to properly daemonize
@@ -476,7 +476,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
                     }
 
                     // Run daemon
-                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, command) {
+                    if let Err(e) = run_daemon(socket_path, socket_was_auto_generated, rows, cols, emulator, pty_dump, scrollback, command) {
                         // Daemon errors go to /dev/null in daemon mode, which is fine
                         eprintln!("Daemon error: {}", e);
                         std::process::exit(1);
@@ -495,7 +495,7 @@ fn cmd_start(socket: Option<String>, size: String, emulator: Emulator, daemon: b
     }
 }
 
-fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, pty_dump: Option<String>, command: Vec<String>) -> Result<()> {
+fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, cols: u16, emulator: Emulator, pty_dump: Option<String>, scrollback: usize, command: Vec<String>) -> Result<()> {
     // Create PTY
     let winsize = Winsize {
         ws_row: rows,
@@ -540,7 +540,7 @@ fn run_daemon(socket_path: String, socket_was_auto_generated: bool, rows: u16, c
             let state = Arc::new(Mutex::new(DaemonState {
                 master_fd: pty.master,
                 child_pid: Pid::from_raw(child),
-                terminal: create_terminal(rows as usize, cols as usize, emulator),
+                terminal: create_terminal(rows as usize, cols as usize, emulator, scrollback),
                 exit_code: None,
                 socket_path: socket_path.clone(),
                 socket_was_auto_generated,
@@ -777,6 +777,7 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
     let (rows, cols) = state.terminal.dimensions();
     let scrollback_available = state.terminal.scrollback_lines();
+    let scrollback_capacity = state.terminal.scrollback_capacity();
 
     let data = serde_json::json!({
         "screen": combined,
@@ -788,7 +789,8 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
             "rows": rows,
             "cols": cols
         },
-        "scrollback_available": scrollback_available
+        "scrollback_available": scrollback_available,
+        "scrollback_capacity": scrollback_capacity
     });
 
     Response::ok(data)
@@ -1224,8 +1226,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { socket, size, emulator, no_daemon, pty_dump, command } => {
-            cmd_start(socket, size, emulator, !no_daemon, pty_dump, command)?;
+        Commands::Start { socket, size, emulator, no_daemon, pty_dump, scrollback, command } => {
+            cmd_start(socket, size, emulator, !no_daemon, pty_dump, scrollback, command)?;
         }
         Commands::Input { socket, text, password } => {
             // Priority: --password, --text, stdin
@@ -1288,15 +1290,15 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, number, cursor, scrollback, from, to } => {
+        Commands::Output { socket, color, no_color, number, cursor, from, to } => {
             // Default is color (ansi), --no-color disables it
             let format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
 
-            // Request enough scrollback to cover --from
+            // Request all available scrollback; --from/--to filters client-side
             let scrollback_request = match from {
-                Some(f) if f < 0 => scrollback.max((-f) as usize),
-                _ => scrollback,
+                Some(f) if f < 0 => (-f) as usize,
+                _ => usize::MAX,
             };
 
             let request = serde_json::json!({

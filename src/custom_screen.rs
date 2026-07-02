@@ -66,12 +66,16 @@ pub struct CustomScreen {
 }
 
 impl CustomScreen {
+    #[allow(dead_code)]
     pub fn new(rows: usize, cols: usize) -> Self {
-        Self::with_debug_buffer(rows, cols, 10)
+        Self::new_with_scrollback(rows, cols, 10_000)
     }
 
-    pub fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
-        let scrollback_capacity = 10_000;
+    pub fn new_with_scrollback(rows: usize, cols: usize, scrollback_capacity: usize) -> Self {
+        Self::with_debug_buffer(rows, cols, 10, scrollback_capacity)
+    }
+
+    pub fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize, scrollback_capacity: usize) -> Self {
         CustomScreen {
             rows,
             cols,
@@ -173,6 +177,10 @@ impl TerminalEmulator for CustomScreen {
 
     fn scrollback_lines(&self) -> usize {
         self.scrollback.len()
+    }
+
+    fn scrollback_capacity(&self) -> usize {
+        self.scrollback_capacity
     }
 
     fn get_scrollback_content(&self, lines: usize) -> String {
