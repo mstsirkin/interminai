@@ -102,16 +102,16 @@ fn test_number_flag_adds_line_numbers() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // Default 80x24 terminal has 24 lines, so width should be 2
-    // First line should start with "01\t"
-    assert!(lines[0].starts_with("01\t"), "First line should start with '01\\t', got: {:?}", lines[0]);
+    // First line should start with " 01\t"
+    assert!(lines[0].starts_with(" 01\t"), "First line should start with '01\\t', got: {:?}", lines[0]);
 
     // Line containing "Hello" should be numbered
     let hello_line = lines.iter().find(|l| l.contains("Hello")).expect("Should find Hello line");
-    assert!(hello_line.starts_with("01\t") || hello_line.starts_with("02\t"),
+    assert!(hello_line.starts_with(" 01\t") || hello_line.starts_with(" 02\t"),
         "Hello line should be numbered, got: {:?}", hello_line);
 
-    // Last line should be "24\t"
-    assert!(lines.last().unwrap().starts_with("24\t"),
+    // Last line should be " 24\t"
+    assert!(lines.last().unwrap().starts_with(" 24\t"),
         "Last line should start with '24\\t', got: {:?}", lines.last());
 
     daemon.stop();
@@ -137,7 +137,7 @@ fn test_number_flag_long_form() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // Should have numbered lines
-    assert!(lines[0].starts_with("01\t"), "First line should start with '01\\t', got: {:?}", lines[0]);
+    assert!(lines[0].starts_with(" 01\t"), "First line should start with '01\\t', got: {:?}", lines[0]);
 
     daemon.stop();
 }
@@ -196,9 +196,9 @@ fn test_number_flag_zero_padding_large_terminal() {
     let lines: Vec<&str> = stdout.lines().collect();
 
     // 100 lines -> 3-digit padding
-    assert!(lines[0].starts_with("001\t"), "First line should be '001\\t', got: {:?}", lines[0]);
-    assert!(lines[9].starts_with("010\t"), "Line 10 should be '010\\t', got: {:?}", lines[9]);
-    assert!(lines[99].starts_with("100\t"), "Last line should be '100\\t', got: {:?}", lines[99]);
+    assert!(lines[0].starts_with(" 001\t"), "First line should be '001\\t', got: {:?}", lines[0]);
+    assert!(lines[9].starts_with(" 010\t"), "Line 10 should be '010\\t', got: {:?}", lines[9]);
+    assert!(lines[99].starts_with(" 100\t"), "Last line should be '100\\t', got: {:?}", lines[99]);
 
     daemon.stop();
 }
@@ -223,7 +223,7 @@ fn test_number_flag_without_disables_numbering() {
     let first_line = stdout.lines().next().unwrap_or("");
 
     // Should NOT start with a number and tab
-    assert!(!first_line.starts_with("01\t"), "Without -n, should not have line numbers, got: {:?}", first_line);
+    assert!(!first_line.starts_with(" 01\t"), "Without -n, should not have line numbers, got: {:?}", first_line);
 
     daemon.stop();
 }
@@ -254,7 +254,7 @@ fn test_number_flag_with_cursor_print() {
     assert!(lines[0].starts_with("Cursor:"), "First line should be cursor info, got: {:?}", lines[0]);
 
     // Subsequent lines should be numbered
-    assert!(lines[1].starts_with("01\t"), "Screen lines should be numbered, got: {:?}", lines[1]);
+    assert!(lines[1].starts_with(" 01\t"), "Screen lines should be numbered, got: {:?}", lines[1]);
 
     daemon.stop();
 }

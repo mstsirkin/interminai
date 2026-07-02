@@ -99,6 +99,8 @@ fn get_screen(socket: &str) -> String {
         .arg("output")
         .arg("--socket")
         .arg(socket)
+        .arg("--scrollback")
+        .arg("0")
         .timeout(Duration::from_secs(2))
         .output()
         .expect("Failed to get screen");
@@ -320,4 +322,71 @@ fn test_vim_pagedown_causes_scroll() {
         .success();
 
     thread::sleep(Duration::from_millis(300));
+}
+
+fn get_screen_with_scrollback(socket: &str, scrollback: usize) -> String {
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(socket)
+        .arg("--no-color")
+        .arg("--scrollback")
+        .arg(scrollback.to_string())
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get screen");
+
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+#[test]
+fn test_scrollback_recovers_scrolled_off_lines() {
+    let env = TestEnv::new();
+
+    let _daemon = DaemonHandle::spawn_with_socket_and_size(
+        &env.socket(),
+        "80x5",
+        &["bash", "-c", "seq 1 50; sleep 10"]
+    );
+
+    thread::sleep(Duration::from_millis(800));
+
+    // Without scrollback: only visible screen (last 5 lines)
+    let screen = get_screen(&env.socket());
+    println!("=== Visible screen ===\n{}", screen);
+    assert!(screen.contains("50"), "Should see line 50 on screen");
+    assert!(!screen.contains("\n1\n"), "Line 1 should have scrolled off");
+
+    // With --scrollback 10: should recover 10 lines above visible screen
+    let with_scrollback = get_screen_with_scrollback(&env.socket(), 10);
+    println!("=== With scrollback 10 ===\n{}", with_scrollback);
+    let lines: Vec<&str> = with_scrollback.lines().collect();
+    assert!(lines.len() > 5, "Should have more than 5 lines with scrollback");
+    assert!(with_scrollback.contains("50"), "Should still see line 50");
+
+    // With --scrollback 100: should recover all scrolled-off content
+    let full = get_screen_with_scrollback(&env.socket(), 100);
+    println!("=== With scrollback 100 ===\n{}", full);
+    assert!(full.contains("\n1\n") || full.starts_with("1\n"),
+            "Should recover line 1 with enough scrollback");
+    assert!(full.contains("50"), "Should still see line 50");
+}
+
+#[test]
+fn test_scrollback_zero_matches_default() {
+    let env = TestEnv::new();
+
+    let _daemon = DaemonHandle::spawn_with_socket_and_size(
+        &env.socket(),
+        "80x5",
+        &["bash", "-c", "seq 1 20; sleep 10"]
+    );
+
+    thread::sleep(Duration::from_millis(800));
+
+    let without = get_screen_with_scrollback(&env.socket(), 0);
+    let with_zero = get_screen_with_scrollback(&env.socket(), 0);
+
+    assert_eq!(without, with_zero,
+               "scrollback=0 should match default output");
 }
