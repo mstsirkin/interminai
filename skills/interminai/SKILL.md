@@ -67,7 +67,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
-7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH` instead of repeatedly calling `output`. Use `wait --line N --not-contains PATTERN` to wait for a busy indicator to disappear.
+7. **NEVER poll with grep/sleep loops**: Use `wait` to block until something changes. Use `wait --line N --not-contains PATTERN` to wait for a busy indicator to disappear. See "Waiting for CLI LLM Idle State" below.
 8. **Output is limited**: No need to pipe to head/tail - output always ever gives you one screen. 25 lines by default.
 9. **Use scrollback if output scrolled off**: Start with `output --from -100 --to 0` to check the last 100 scrollback lines. Need more? `output --from -200 --to -100`, and so on. Keep iterating back in chunks until you find what you need.
 10. **Increase scrollback for heavy output**: If a command will produce a lot of output (e.g., `make`, `cargo build`, `git log`), start the session with `--scrollback 50000` or more.
@@ -165,6 +165,19 @@ timeout 120 ./scripts/interminai wait --socket $SOCK \
 **Why line-based?** The input line number stays relatively stable during generation.
 Waiting for that specific line and changing output manually avoids false
 positives from pattern matches elsewhere on screen.
+
+**DO NOT** use grep/sleep polling loops to wait for a CLI LLM to finish:
+
+```bash
+# BAD - wastes time and context window
+for attempt in $(seq 1 60); do
+    sleep 10
+    interminai output --socket $SOCK --no-color | grep 'ctrl+c to stop' || break
+done
+```
+
+Use `wait --line N --not-contains PATTERN` instead -- it blocks efficiently
+until the condition is met, with no polling overhead.
 
 ## Terminal Size
 
