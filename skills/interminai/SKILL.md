@@ -49,7 +49,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 
 - `start -- COMMAND` - Start application (prints socket path on stdout)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
-- `output --socket PATH` - Get screen (80x25 by default, add `--cursor print` for cursor position)
+- `output --socket PATH` - Get screen (80x25 by default, add `--cursor print` for cursor position, `--scrollback N` for history)
 - `status --socket PATH` - Check running state and activity flag
 - `status --socket PATH --quiet` - Check if running (exit 0) or exited (exit 1, prints exit code)
 - `wait --socket PATH` - Wait for activity (any output), prints activity and exit status
