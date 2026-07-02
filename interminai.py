@@ -1325,7 +1325,15 @@ def cmd_output(args):
     # Default is color (ansi), --no-color disables it
     fmt = 'ascii' if args.no_color else 'ansi'
     scrollback = getattr(args, 'scrollback', 0)
-    request = {'type': 'OUTPUT', 'format': fmt, 'scrollback': scrollback}
+    from_line = getattr(args, 'from_line', None)
+    to_line = getattr(args, 'to_line', None)
+
+    # Request enough scrollback to cover --from
+    scrollback_request = scrollback
+    if from_line is not None and from_line < 0:
+        scrollback_request = max(scrollback, -from_line)
+
+    request = {'type': 'OUTPUT', 'format': fmt, 'scrollback': scrollback_request}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1334,44 +1342,69 @@ def cmd_output(args):
 
     data = response['data']
     cursor_mode = args.cursor
-    
+
     # Print cursor info if requested (convert to 1-based for display)
     if cursor_mode in ('print', 'both'):
         cursor = data.get('cursor', {})
         cursor_row = cursor.get('row', 0)
         cursor_col = cursor.get('col', 0)
         print(f"Cursor: row {cursor_row + 1}, col {cursor_col + 1}")
-    
-    screen = data['screen']
 
-    # When scrollback is prepended, cursor row must be offset
-    if scrollback > 0:
-        total_lines = len(screen.split('\n'))
-        screen_rows = data.get('size', {}).get('rows', 24)
-        scrollback_line_count = max(0, total_lines - screen_rows)
+    screen = data['screen']
+    all_lines = screen.split('\n')
+    rows = data.get('size', {}).get('rows', 24)
+    sb_count = max(0, len(all_lines) - rows)
+
+    def line_to_index(n, is_from):
+        if n == 0:
+            n = 1 if is_from else -1
+        if n < 0:
+            return max(0, sb_count + n)
+        else:
+            return sb_count + n - 1
+
+    # Apply --from/--to range filter
+    if from_line is not None or to_line is not None:
+        start_idx = line_to_index(from_line, True) if from_line is not None else 0
+        end_idx = line_to_index(to_line, False) if to_line is not None else len(all_lines) - 1
+        start_idx = min(start_idx, len(all_lines))
+        end_idx = min(end_idx, len(all_lines) - 1)
     else:
-        scrollback_line_count = 0
+        start_idx = 0
+        end_idx = len(all_lines) - 1
+
+    if start_idx > end_idx:
+        return
+
+    selected = all_lines[start_idx:end_idx + 1]
 
     # Apply inverse video if requested
     if cursor_mode in ('inverse', 'both'):
         cursor = data.get('cursor', {})
         cursor_row = cursor.get('row', 0)
         cursor_col = cursor.get('col', 0)
-        screen = apply_cursor_inverse(screen, cursor_row + scrollback_line_count, cursor_col)
+        adjusted_row = sb_count + cursor_row - start_idx
+        joined = '\n'.join(selected)
+        output_text = apply_cursor_inverse(joined, adjusted_row, cursor_col)
+    else:
+        output_text = '\n'.join(selected)
 
     if args.number:
-        lines = screen.split('\n')
-        screen_lines = len(lines) - scrollback_line_count
-        width = len(str(max(scrollback_line_count, screen_lines)))
-        for i, line in enumerate(lines):
-            if i < scrollback_line_count:
-                n = scrollback_line_count - i
-                print(f"-{n:0{width}d}\t{line}")
+        nums = []
+        for idx in range(start_idx, end_idx + 1):
+            if idx < sb_count:
+                nums.append(-(sb_count - idx))
             else:
-                n = i - scrollback_line_count + 1
-                print(f" {n:0{width}d}\t{line}")
+                nums.append(idx - sb_count + 1)
+        max_abs = max(abs(n) for n in nums) if nums else 1
+        width = len(str(max_abs))
+        for line, num in zip(selected, nums):
+            if num < 0:
+                print(f"-{abs(num):0{width}d}\t{line}")
+            else:
+                print(f" {num:0{width}d}\t{line}")
     else:
-        print(screen)
+        print(output_text)
 
 
 def cmd_input(args):
@@ -1634,6 +1667,10 @@ def main():
                                help='Cursor display mode (default: none)')
     output_parser.add_argument('--scrollback', type=int, default=1000,
                                help='Include N lines of scrollback history above the visible screen')
+    output_parser.add_argument('--from', type=int, dest='from_line', default=None,
+                               help='Start output from this line (negative=scrollback, positive=screen, 0=boundary)')
+    output_parser.add_argument('--to', type=int, dest='to_line', default=None,
+                               help='End output at this line (negative=scrollback, positive=screen, 0=boundary)')
     output_parser.set_defaults(func=cmd_output)
 
     # Input command
