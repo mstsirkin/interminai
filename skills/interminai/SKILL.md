@@ -47,10 +47,10 @@ Just read the socket path from the `start` output and use it directly - no need 
 
 ## Essential Commands
 
-- `start -- COMMAND` - Start application (prints socket path on stdout)
+- `start [--scrollback N] -- COMMAND` - Start application (prints socket path on stdout, scrollback buffer default 10000)
 - `input --socket PATH --text 'text'` - Send input (escapes: `\r` `\n` `\e` `\t` `\xHH` see also: "Pressing Enter")
-- `output --socket PATH` - Get screen (80x25 by default, add `--cursor print` for cursor position, `--scrollback N` for history)
-- `status --socket PATH` - Check running state and activity flag
+- `output --socket PATH` - Get screen + scrollback (add `--cursor print` for cursor, `--from N --to M` for ranges)
+- `status --socket PATH` - Check running state, activity, size, and scrollback usage
 - `status --socket PATH --quiet` - Check if running (exit 0) or exited (exit 1, prints exit code)
 - `wait --socket PATH` - Wait for activity (any output), prints activity and exit status
 - `wait --socket PATH --quiet` - Wait for process to exit (prints exit code)
@@ -69,6 +69,8 @@ Just read the socket path from the `start` output and use it directly - no need 
 6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
 7. **Wait for updates**: If screen isn't updating, use `timeout 10 interminai wait --socket PATH` instead of repeatedly calling `output`
 8. **Output is limited**: No need to pipe to head/tail - output always ever gives you one screen. 25 lines by default.
+9. **Use scrollback**: If output scrolled past the screen (build logs, compiler errors, long command output), use `--from -100` to retrieve it. Iterate with larger values if needed.
+10. **Increase scrollback for heavy output**: If a command will produce a lot of output (e.g., `make`, `cargo build`, `git log`), start the session with `--scrollback 50000` or more.
 
 ## Checking Activity (Recommended for LLMs)
 
