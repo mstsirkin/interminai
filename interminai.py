@@ -973,8 +973,7 @@ def handle_client(client_sock, state):
 
         # Handle request
         if req_type == 'OUTPUT':
-            response = handle_output(request.get('format', 'ascii'), state,
-                                     request.get('scrollback', 0))
+            response = handle_output(request, state)
         elif req_type == 'INPUT':
             response = handle_input(request.get('data'), state)
         elif req_type == 'STATUS':
@@ -1009,23 +1008,54 @@ def handle_client(client_sock, state):
             pass
 
 
-def handle_output(fmt, state, scrollback_n=0):
+def handle_output(request_data, state):
     """Handle OUTPUT request"""
+    fmt = request_data.get('format', 'ascii')
+    from_val = request_data.get('from', 0)
+    to_val = request_data.get('to')
+
+    rows = state.screen.rows
+    scrollback_available = state.screen.scrollback_lines()
+    scrollback_capacity = state.screen.scrollback_capacity()
+
+    # from: 0 = boundary (screen line 1), negative = scrollback, "-" = all scrollback
+    if from_val == '-':
+        from_val = -scrollback_available
+    elif from_val is None:
+        from_val = 0
+
+    sb_lines = -from_val if from_val < 0 else 0
+
     if fmt == 'ansi':
         screen_text = state.screen.render_ansi()
     else:
         screen_text = state.screen.render()
 
     scrollback_text = ''
-    if scrollback_n and scrollback_n > 0:
+    if sb_lines > 0:
         if fmt == 'ansi':
-            scrollback_text = state.screen.render_scrollback_ansi(scrollback_n)
+            scrollback_text = state.screen.render_scrollback_ansi(sb_lines)
         else:
-            scrollback_text = state.screen.render_scrollback(scrollback_n)
+            scrollback_text = state.screen.render_scrollback(sb_lines)
 
     combined = scrollback_text + screen_text if scrollback_text else screen_text
-    scrollback_available = state.screen.scrollback_lines()
-    scrollback_capacity = state.screen.scrollback_capacity()
+
+    # Apply --to filtering
+    if to_val is not None:
+        all_lines = combined.split('\n')
+        sb_count = max(0, len(all_lines) - rows)
+        if to_val == 0:
+            end_idx = max(0, sb_count - 1)
+        elif to_val < 0:
+            end_idx = max(0, sb_count + to_val)
+        else:
+            end_idx = sb_count + to_val - 1
+        end_idx = min(end_idx, len(all_lines) - 1)
+        combined = '\n'.join(all_lines[:end_idx + 1]) + '\n'
+
+    # Effective from/to for response
+    effective_from = -min(sb_lines, scrollback_available) if from_val < 0 else max(from_val, 1)
+    effective_to = to_val if to_val is not None else rows
 
     return {
         'status': 'ok',
@@ -1036,9 +1066,11 @@ def handle_output(fmt, state, scrollback_n=0):
                 'col': state.screen.cursor_col
             },
             'size': {
-                'rows': state.screen.rows,
+                'rows': rows,
                 'cols': state.screen.cols
             },
+            'from': effective_from,
+            'to': effective_to,
             'scrollback_available': scrollback_available,
             'scrollback_capacity': scrollback_capacity
         }
@@ -1343,16 +1375,20 @@ def cmd_output(args):
     """Output command - get screen content"""
     # Default is color (ansi), --no-color disables it
     fmt = 'ascii' if args.no_color else 'ansi'
-    from_line = getattr(args, 'from_line', None)
+    from_raw = getattr(args, 'from_line', None)
     to_line = getattr(args, 'to_line', None)
 
-    # Request all available scrollback; --from/--to filters client-side
-    if from_line is not None and from_line < 0:
-        scrollback_request = -from_line
+    request = {'type': 'OUTPUT', 'format': fmt}
+    if from_raw is not None:
+        if from_raw == '-':
+            request['from'] = '-'
+        else:
+            request['from'] = int(from_raw)
     else:
-        scrollback_request = 2**31
+        request['from'] = 0
+    if to_line is not None:
+        request['to'] = to_line
 
-    request = {'type': 'OUTPUT', 'format': fmt, 'scrollback': scrollback_request}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1362,7 +1398,6 @@ def cmd_output(args):
     data = response['data']
     cursor_mode = args.cursor
 
-    # Print cursor info if requested (convert to 1-based for display)
     if cursor_mode in ('print', 'both'):
         cursor = data.get('cursor', {})
         cursor_row = cursor.get('row', 0)
@@ -1370,60 +1405,33 @@ def cmd_output(args):
         print(f"Cursor: row {cursor_row + 1}, col {cursor_col + 1}")
 
     screen = data['screen']
-    all_lines = screen.split('\n')
-    rows = data.get('size', {}).get('rows', 24)
-    sb_count = max(0, len(all_lines) - rows)
-
-    def line_to_index(n, is_from):
-        if n == 0:
-            n = 1 if is_from else -1
-        if n < 0:
-            return max(0, sb_count + n)
-        else:
-            return sb_count + n - 1
-
-    # Apply --from/--to range filter
-    if from_line is not None or to_line is not None:
-        start_idx = line_to_index(from_line, True) if from_line is not None else 0
-        end_idx = line_to_index(to_line, False) if to_line is not None else len(all_lines) - 1
-        start_idx = min(start_idx, len(all_lines))
-        end_idx = min(end_idx, len(all_lines) - 1)
-    else:
-        start_idx = 0
-        end_idx = len(all_lines) - 1
-
-    if start_idx > end_idx:
-        return
-
-    selected = all_lines[start_idx:end_idx + 1]
+    eff_from = data.get('from', 1)
+    sb_count = -eff_from if eff_from < 0 else 0
 
     # Apply inverse video if requested
     if cursor_mode in ('inverse', 'both'):
         cursor = data.get('cursor', {})
         cursor_row = cursor.get('row', 0)
         cursor_col = cursor.get('col', 0)
-        adjusted_row = sb_count + cursor_row - start_idx
-        joined = '\n'.join(selected)
-        output_text = apply_cursor_inverse(joined, adjusted_row, cursor_col)
-    else:
-        output_text = '\n'.join(selected)
+        screen = apply_cursor_inverse(screen, sb_count + cursor_row, cursor.get('col', 0))
 
     if args.number:
+        lines = screen.split('\n')
         nums = []
-        for idx in range(start_idx, end_idx + 1):
-            if idx < sb_count:
-                nums.append(-(sb_count - idx))
-            else:
-                nums.append(idx - sb_count + 1)
+        for i in range(len(lines)):
+            n = eff_from + i
+            if eff_from < 0 and n >= 0:
+                n += 1
+            nums.append(n)
         max_abs = max(abs(n) for n in nums) if nums else 1
         width = len(str(max_abs))
-        for line, num in zip(selected, nums):
+        for line, num in zip(lines, nums):
             if num < 0:
                 print(f"-{abs(num):0{width}d}\t{line}")
             else:
                 print(f" {num:0{width}d}\t{line}")
     else:
-        print(output_text)
+        print(screen)
 
 
 def cmd_input(args):
@@ -1691,8 +1699,8 @@ def main():
                                help='Number all output lines (zero-padded, 1-based)')
     output_parser.add_argument('--cursor', default='none', choices=['none', 'print', 'inverse', 'both'],
                                help='Cursor display mode (default: none)')
-    output_parser.add_argument('--from', type=int, dest='from_line', default=None,
-                               help='Start output from this line (negative=scrollback, positive=screen, 0=boundary)')
+    output_parser.add_argument('--from', dest='from_line', default=None,
+                               help='Start output from this line (negative=scrollback, positive=screen, 0=boundary, "-"=all scrollback)')
     output_parser.add_argument('--to', type=int, dest='to_line', default=None,
                                help='End output at this line (negative=scrollback, positive=screen, 0=boundary)')
     output_parser.set_defaults(func=cmd_output)
