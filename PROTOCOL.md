@@ -70,21 +70,33 @@ All responses are JSON objects:
 
 ---
 
-### OUTPUT - Get current screen state
+### OUTPUT - Get screen and scrollback content
 
 **Request:**
 ```json
 {
   "type": "OUTPUT",
   "format": "ascii" | "ansi",
-  "scrollback": 0
+  "from": 0,
+  "to": null
 }
 ```
 
-The `scrollback` field is optional (default: 0). When non-zero, that many lines
-of scrollback history are prepended to the screen content.
+**Line numbering:** Negative = scrollback, positive = screen, 0 = boundary.
+Line -1 is the scrollback line closest to the screen, -N is N lines back.
+Line 1 is the first screen line, line `rows` is the last.
+Line 0 does not exist -- it is the boundary between scrollback and screen.
 
-**Response (ascii format - default):**
+**Request fields:**
+- `format`: `"ascii"` (default) or `"ansi"` for color output
+- `from`: First line to include (inclusive). Default/null = 0 (boundary = screen
+  line 1). Use negative values for scrollback (e.g., -100 for last 100 scrollback
+  lines). Use `null` to start from the beginning of the scrollback buffer.
+- `to`: Last line to include (inclusive). Default/null = last screen line.
+  Use 0 for boundary (= scrollback only, no screen). Use negative for scrollback
+  subset (e.g., -1 = up to the last scrollback line).
+
+**Response:**
 ```json
 {
   "status": "ok",
@@ -98,39 +110,22 @@ of scrollback history are prepended to the screen content.
       "rows": 24,
       "cols": 80
     },
-    "scrollback_available": 150
+    "from": -100,
+    "to": 24,
+    "scrollback_available": 150,
+    "scrollback_capacity": 10000
   }
 }
 ```
 
-**Response (ansi format):**
-```json
-{
-  "status": "ok",
-  "data": {
-    "screen": "\u001b[38;2;255;0;0mColored text\u001b[0m with ANSI codes...",
-    "cursor": {
-      "row": 5,
-      "col": 10
-    },
-    "size": {
-      "rows": 24,
-      "cols": 80
-    },
-    "scrollback_available": 150
-  }
-}
-```
-
-**Notes:**
-- `ascii`: Plain text, no color codes (default, works with all backends)
-- `ansi`: Text with embedded ANSI escape codes for colors and attributes.
-  Supported by Alacritty and pyte backends. Custom backend returns plain text.
-- `scrollback`: Number of scrollback lines to prepend above the visible screen.
-  When non-zero, the `screen` field contains scrollback lines followed by the
-  visible screen content. Up to 10,000 lines of history are retained.
-- `scrollback_available`: Total scrollback lines available (always present).
-
+**Response fields:**
+- `screen`: The requested line range. With `ansi` format, includes ANSI color codes.
+  When `from` is negative, scrollback lines are prepended before screen lines.
+- `cursor`: Cursor position relative to the visible screen (0-indexed).
+- `size`: Terminal dimensions (rows x cols).
+- `from`, `to`: The effective line range returned (clamped to available bounds).
+- `scrollback_available`: Lines currently in the scrollback buffer.
+- `scrollback_capacity`: Maximum buffer size (set by `start --scrollback`).
 ---
 
 ### STATUS - Check process status
