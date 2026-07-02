@@ -110,8 +110,8 @@ processing and are waiting for input.
 | CLI | Busy Pattern | Idle Pattern |
 |-----|-------------|--------------|
 | **cursor-agent** | `ctrl+c to stop` on input line | `→ Add a follow-up` |
-| **codex** | `• Working (Ns • esc to interrupt)` | `›` prompt, "100% context left" |
-| **gemini** | `⠋ <action> (esc to cancel, Ns)` | `>` in input box |
+| **codex** | `Working (Ns • esc to interrupt)` | `›` prompt |
+| **gemini** | `Thinking... (esc to cancel, Ns)` | `>` in input box |
 | **claude** | `✶ <word>… (ctrl+c to interrupt · Ns)` | `❯` prompt |
 
 **Approval prompts:**
@@ -139,21 +139,19 @@ SOCK=/tmp/interminai-xxx/socket
 sleep 0.1
 ./scripts/interminai input --socket $SOCK --text '\r'
 
-# Find the line with ctrl+c to stop (the input prompt line during generation)
-# This line number may vary based on screen content
+# Show full screen with line numbers to find 'ctrl+c to stop'.
+# IMPORTANT: always read the full colored output yourself - never pipe
+# to grep/head or use --no-color when looking for line numbers.
+# You must see the whole screen to tell a UI prompt from random text.
 ./scripts/interminai output --socket $SOCK -n
 
-#NOTE! look for 'ctrl+c to stop' manually yourself - do not grep or use another
-#tool, you must verify it is the prompt not some random thought or tool output
-
-# Wait for that line to no longer contain 'ctrl+c to stop'
+# Find the line number that has 'ctrl+c to stop' (the input prompt
+# line during generation) and wait for it to change
 timeout 120 ./scripts/interminai wait --socket $SOCK \
   --line $INPUT_LINE --not-contains 'ctrl+c to stop'
 
-# Now cursor-agent is idle (or showing approval prompt), check output
-#NOTE! look for prompt manually yourself - do not grep or use another
-#tool, you must verify it is the prompt not some random thought or tool output
-
+# Now cursor-agent is idle (or showing approval prompt), check full screen.
+# Look for 'Run this command?' or idle prompt yourself - do not grep.
 ./scripts/interminai output --socket $SOCK
 # if you see 'Run this command?'
 # Approval prompt - approve with 'y' or skip with 'n'
