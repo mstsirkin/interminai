@@ -69,8 +69,8 @@ impl DaemonHandle {
             .arg("--socket")
             .arg(&self.socket_path)
             .arg("--no-color")
-            .arg("--scrollback")
-            .arg("0")
+            .arg("--from")
+            .arg("1")
             .timeout(Duration::from_secs(2))
             .output()
             .expect("Failed to get output");

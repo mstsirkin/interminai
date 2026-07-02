@@ -99,8 +99,8 @@ fn get_screen(socket: &str) -> String {
         .arg("output")
         .arg("--socket")
         .arg(socket)
-        .arg("--scrollback")
-        .arg("0")
+        .arg("--from")
+        .arg("1")
         .timeout(Duration::from_secs(2))
         .output()
         .expect("Failed to get screen");
@@ -325,13 +325,18 @@ fn test_vim_pagedown_causes_scroll() {
 }
 
 fn get_screen_with_scrollback(socket: &str, scrollback: usize) -> String {
+    let from_val = if scrollback == 0 {
+        "1".to_string()
+    } else {
+        format!("-{}", scrollback)
+    };
     let output = Command::new(interminai_bin())
         .arg("output")
         .arg("--socket")
         .arg(socket)
         .arg("--no-color")
-        .arg("--scrollback")
-        .arg(scrollback.to_string())
+        .arg("--from")
+        .arg(&from_val)
         .timeout(Duration::from_secs(2))
         .output()
         .expect("Failed to get screen");
