@@ -91,7 +91,7 @@ Line 0 does not exist -- it is the boundary between scrollback and screen.
 - `format`: `"ascii"` (default) or `"ansi"` for color output
 - `from`: First line to include (inclusive). Default/null = 0 (boundary = screen
   line 1). Use negative values for scrollback (e.g., -100 for last 100 scrollback
-  lines). Use `null` to start from the beginning of the scrollback buffer.
+  lines). Use `"-"` (string) to start from the beginning of the scrollback buffer.
 - `to`: Last line to include (inclusive). Default/null = last screen line.
   Use 0 for boundary (= scrollback only, no screen). Use negative for scrollback
   subset (e.g., -1 = up to the last scrollback line).
