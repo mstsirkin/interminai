@@ -345,6 +345,95 @@ impl TerminalEmulator for AlacrittyTerminal {
         }
     }
 
+    fn scrollback_lines(&self) -> usize {
+        let grid = self.term.grid();
+        grid.total_lines().saturating_sub(grid.screen_lines())
+    }
+
+    fn get_scrollback_content(&self, lines: usize) -> String {
+        let grid = self.term.grid();
+        let history = grid.total_lines().saturating_sub(grid.screen_lines());
+        let n = lines.min(history);
+        if n == 0 {
+            return String::new();
+        }
+
+        let mut result = String::new();
+        for i in (1..=n).rev() {
+            let line = &grid[Line(-(i as i32))];
+            let line_str: String = (0..grid.columns())
+                .filter_map(|col| {
+                    let cell = &line[Column(col)];
+                    if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                        None
+                    } else {
+                        Some(cell.c)
+                    }
+                })
+                .collect();
+            result.push_str(line_str.trim_end());
+            result.push('\n');
+        }
+
+        result
+    }
+
+    fn get_scrollback_content_ansi(&self, lines: usize) -> String {
+        let grid = self.term.grid();
+        let history = grid.total_lines().saturating_sub(grid.screen_lines());
+        let n = lines.min(history);
+        if n == 0 {
+            return String::new();
+        }
+
+        let default_fg = Color::Named(NamedColor::Foreground);
+        let default_bg = Color::Named(NamedColor::Background);
+        let empty_flags = Flags::empty();
+        let mut result = String::new();
+
+        for i in (1..=n).rev() {
+            let line = &grid[Line(-(i as i32))];
+            let mut line_content = String::new();
+            let mut current_fg = default_fg;
+            let mut current_bg = default_bg;
+            let mut current_flags = empty_flags;
+
+            for col in 0..grid.columns() {
+                let cell = &line[Column(col)];
+                if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+
+                let cell_display_flags = display_flags(cell.flags);
+                let need_sgr = cell.fg != current_fg
+                    || cell.bg != current_bg
+                    || cell_display_flags != current_flags;
+
+                if need_sgr {
+                    let sgr = build_sgr_sequence(&cell.fg, &cell.bg, cell.flags);
+                    if !sgr.is_empty() {
+                        line_content.push_str(&sgr);
+                    }
+                    current_fg = cell.fg;
+                    current_bg = cell.bg;
+                    current_flags = cell_display_flags;
+                }
+
+                line_content.push(cell.c);
+            }
+
+            if current_fg != default_fg || current_bg != default_bg || current_flags != empty_flags {
+                line_content.push_str("\x1b[0m");
+            }
+
+            let trimmed = trim_end_preserve_ansi(&line_content);
+            result.push_str(trimmed);
+            result.push('\n');
+        }
+
+        result
+    }
+
     fn get_debug_entries(&self) -> Vec<UnhandledSequence> {
         // alacritty_terminal handles most sequences, so we don't track unhandled ones
         Vec::new()

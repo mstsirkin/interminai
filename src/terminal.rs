@@ -49,4 +49,15 @@ pub trait TerminalEmulator: Send {
 
     /// Get count of dropped debug entries (due to buffer overflow)
     fn get_debug_dropped(&self) -> usize;
+
+    /// Get number of lines available in scrollback history
+    fn scrollback_lines(&self) -> usize { 0 }
+
+    /// Get scrollback content as plain text (most recent `lines` lines before visible screen)
+    fn get_scrollback_content(&self, _lines: usize) -> String { String::new() }
+
+    /// Get scrollback content with ANSI color codes
+    fn get_scrollback_content_ansi(&self, lines: usize) -> String {
+        self.get_scrollback_content(lines)
+    }
 }

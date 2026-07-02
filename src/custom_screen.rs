@@ -3,6 +3,7 @@
 // This is the original terminal emulator that was extracted from main.rs.
 // It uses the vte crate for parsing ANSI escape sequences.
 
+use std::collections::VecDeque;
 use vte::Perform;
 use crate::terminal::{TerminalEmulator, UnhandledSequence};
 
@@ -60,6 +61,8 @@ pub struct CustomScreen {
     parser: vte::Parser,
     /// Delayed wrap mode: when true, the next printable character will wrap to next line first
     pending_wrap: bool,
+    scrollback: VecDeque<Vec<char>>,
+    scrollback_capacity: usize,
 }
 
 impl CustomScreen {
@@ -68,6 +71,7 @@ impl CustomScreen {
     }
 
     pub fn with_debug_buffer(rows: usize, cols: usize, debug_buffer_size: usize) -> Self {
+        let scrollback_capacity = 10_000;
         CustomScreen {
             rows,
             cols,
@@ -79,6 +83,8 @@ impl CustomScreen {
             pending_responses: Vec::new(),
             parser: vte::Parser::new(),
             pending_wrap: false,
+            scrollback: VecDeque::with_capacity(scrollback_capacity),
+            scrollback_capacity,
         }
     }
 
@@ -112,7 +118,11 @@ impl CustomScreen {
     }
 
     fn scroll_up(&mut self) {
-        self.cells.remove(0);
+        let row = self.cells.remove(0);
+        if self.scrollback.len() >= self.scrollback_capacity {
+            self.scrollback.pop_front();
+        }
+        self.scrollback.push_back(row);
         self.cells.push(vec![' '; self.cols]);
     }
 }
@@ -159,6 +169,25 @@ impl TerminalEmulator for CustomScreen {
 
     fn take_pending_responses(&mut self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.pending_responses)
+    }
+
+    fn scrollback_lines(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    fn get_scrollback_content(&self, lines: usize) -> String {
+        let n = lines.min(self.scrollback.len());
+        if n == 0 {
+            return String::new();
+        }
+        let start = self.scrollback.len() - n;
+        let mut result = String::new();
+        for row in self.scrollback.iter().skip(start) {
+            let line: String = row.iter().collect();
+            result.push_str(line.trim_end());
+            result.push('\n');
+        }
+        result
     }
 
     fn get_debug_entries(&self) -> Vec<UnhandledSequence> {

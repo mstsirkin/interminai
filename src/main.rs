@@ -115,6 +115,10 @@ enum Commands {
         /// Cursor display mode (none, inverse, print, both)
         #[arg(long, default_value = "none")]
         cursor: String,
+
+        /// Include N lines of scrollback history above the visible screen
+        #[arg(long, default_value = "1000")]
+        scrollback: usize,
     },
 
     /// Stop running session
@@ -737,6 +741,7 @@ fn handle_input(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Res
 
 fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Response {
     let format = data.get("format").and_then(|v| v.as_str()).unwrap_or("ascii");
+    let scrollback_n = data.get("scrollback").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
     let mut state = state.lock().unwrap();
     state.read_pty_output();
@@ -745,11 +750,28 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         "ansi" => state.terminal.get_screen_content_ansi(),
         _ => state.terminal.get_screen_content(),
     };
+
+    let scrollback_text = if scrollback_n > 0 {
+        match format {
+            "ansi" => state.terminal.get_scrollback_content_ansi(scrollback_n),
+            _ => state.terminal.get_scrollback_content(scrollback_n),
+        }
+    } else {
+        String::new()
+    };
+
+    let combined = if scrollback_text.is_empty() {
+        screen_text
+    } else {
+        format!("{}{}", scrollback_text, screen_text)
+    };
+
     let (cursor_row, cursor_col) = state.terminal.cursor_position();
     let (rows, cols) = state.terminal.dimensions();
+    let scrollback_available = state.terminal.scrollback_lines();
 
     let data = serde_json::json!({
-        "screen": screen_text,
+        "screen": combined,
         "cursor": {
             "row": cursor_row,
             "col": cursor_col
@@ -757,7 +779,8 @@ fn handle_output(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> Re
         "size": {
             "rows": rows,
             "cols": cols
-        }
+        },
+        "scrollback_available": scrollback_available
     });
 
     Response::ok(data)
@@ -1257,14 +1280,15 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Commands::Output { socket, color, no_color, number, cursor } => {
+        Commands::Output { socket, color, no_color, number, cursor, scrollback } => {
             // Default is color (ansi), --no-color disables it
             let format = if no_color { "ascii" } else { "ansi" };
             let _ = color; // --color is just for explicitness, default is already color
 
             let request = serde_json::json!({
                 "type": "OUTPUT",
-                "format": format
+                "format": format,
+                "scrollback": scrollback
             });
 
             let response = send_request(&socket, request)?;
@@ -1288,13 +1312,25 @@ fn main() -> Result<()> {
                 }
 
                 if let Some(screen) = data.get("screen").and_then(|v| v.as_str()) {
+                    // When scrollback is prepended, cursor row must be offset
+                    let scrollback_line_count = if scrollback > 0 {
+                        let total_lines = screen.lines().count();
+                        let (rows, _) = (
+                            data.get("size").and_then(|s| s.get("rows")).and_then(|v| v.as_u64()).unwrap_or(24) as usize,
+                            0
+                        );
+                        total_lines.saturating_sub(rows)
+                    } else {
+                        0
+                    };
+
                     // Apply inverse video if requested
                     let screen = if cursor_mode == "inverse" || cursor_mode == "both" {
                         if let (Some(cursor_row), Some(cursor_col)) = (
                             data.get("cursor").and_then(|c| c.get("row")).and_then(|v| v.as_u64()),
                             data.get("cursor").and_then(|c| c.get("col")).and_then(|v| v.as_u64())
                         ) {
-                            apply_cursor_inverse(screen, cursor_row as usize, cursor_col as usize)
+                            apply_cursor_inverse(screen, cursor_row as usize + scrollback_line_count, cursor_col as usize)
                         } else {
                             screen.to_string()
                         }
@@ -1304,9 +1340,16 @@ fn main() -> Result<()> {
 
                     if number {
                         let lines: Vec<&str> = screen.lines().collect();
-                        let width = lines.len().to_string().len();
+                        let screen_lines = lines.len().saturating_sub(scrollback_line_count);
+                        let width = scrollback_line_count.max(screen_lines).to_string().len();
                         for (i, line) in lines.iter().enumerate() {
-                            println!("{:0>width$}\t{}", i + 1, line, width = width);
+                            if i < scrollback_line_count {
+                                let n = scrollback_line_count - i;
+                                println!("-{:0>width$}\t{}", n, line, width = width);
+                            } else {
+                                let n = i - scrollback_line_count + 1;
+                                println!(" {:0>width$}\t{}", n, line, width = width);
+                            }
                         }
                     } else {
                         print!("{}", screen);
