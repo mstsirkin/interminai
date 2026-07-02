@@ -802,13 +802,19 @@ fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> R
     state.check_child_status();
 
     let running = state.exit_code.is_none();
+    let (rows, cols) = state.terminal.dimensions();
+    let scrollback_available = state.terminal.scrollback_lines();
+    let scrollback_capacity = state.terminal.scrollback_capacity();
 
     if activity_mode {
         let activity = state.activity;
         state.activity = false;  // Clear the flag after reading
         let mut response = serde_json::json!({
             "running": running,
-            "activity": activity
+            "activity": activity,
+            "size": { "rows": rows, "cols": cols },
+            "scrollback_available": scrollback_available,
+            "scrollback_capacity": scrollback_capacity
         });
         if let Some(exit_code) = state.exit_code {
             response["exit_code"] = serde_json::json!(exit_code);
@@ -817,11 +823,17 @@ fn handle_running(data: serde_json::Value, state: &Arc<Mutex<DaemonState>>) -> R
     } else if let Some(exit_code) = state.exit_code {
         Response::ok(serde_json::json!({
             "running": false,
-            "exit_code": exit_code
+            "exit_code": exit_code,
+            "size": { "rows": rows, "cols": cols },
+            "scrollback_available": scrollback_available,
+            "scrollback_capacity": scrollback_capacity
         }))
     } else {
         Response::ok(serde_json::json!({
-            "running": true
+            "running": true,
+            "size": { "rows": rows, "cols": cols },
+            "scrollback_available": scrollback_available,
+            "scrollback_capacity": scrollback_capacity
         }))
     }
 }
@@ -1434,6 +1446,14 @@ fn main() -> Result<()> {
                     println!("Running: {}", running);
                     let has_activity = data.get("activity").and_then(|v| v.as_bool()).unwrap_or(false);
                     println!("Activity: {}", has_activity);
+                    if let Some(size) = data.get("size") {
+                        let rows = size.get("rows").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let cols = size.get("cols").and_then(|v| v.as_u64()).unwrap_or(0);
+                        println!("Size: {}x{}", cols, rows);
+                    }
+                    let sb_avail = data.get("scrollback_available").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let sb_cap = data.get("scrollback_capacity").and_then(|v| v.as_u64()).unwrap_or(0);
+                    println!("Scrollback: {}/{}", sb_avail, sb_cap);
                     if !running {
                         if let Some(exit_code) = data.get("exit_code") {
                             println!("Exit code: {}", exit_code);
