@@ -22,6 +22,7 @@ import argparse
 from pathlib import Path
 import tempfile
 import threading
+from collections import deque
 
 # Try to import pyte for better terminal emulation
 try:
@@ -90,10 +91,12 @@ class Screen:
         self.pending_wrap = False
         # Activity flag: set to True when output is received, cleared by status or wait
         self.activity = False
+        self.scrollback = deque(maxlen=10000)
 
     def scroll_up(self):
         """Scroll screen up by one line"""
-        self.cells.pop(0)
+        row = self.cells.pop(0)
+        self.scrollback.append(row)
         self.cells.append([' ' for _ in range(self.cols)])
 
     def move_cursor(self, row, col):
@@ -384,6 +387,25 @@ class Screen:
         """Render the screen as a string"""
         return '\n'.join(''.join(row) for row in self.cells)
 
+    def scrollback_lines(self):
+        """Return number of lines in scrollback history"""
+        return len(self.scrollback)
+
+    def render_scrollback(self, lines):
+        """Render N lines of scrollback history as plain text"""
+        n = min(lines, len(self.scrollback))
+        if n == 0:
+            return ''
+        start = len(self.scrollback) - n
+        result = []
+        for i in range(start, len(self.scrollback)):
+            result.append(''.join(self.scrollback[i]).rstrip())
+        return '\n'.join(result) + '\n'
+
+    def render_scrollback_ansi(self, lines):
+        """Render scrollback with ANSI codes - custom backend has no colors"""
+        return self.render_scrollback(lines)
+
     def render_ansi(self):
         """Render with ANSI codes - custom backend doesn't support colors, returns plain text"""
         return self.render()
@@ -396,6 +418,7 @@ class ExtendedPyteScreen(pyte.Screen):
         super().__init__(columns, lines)
         self._last_char = ' '
         self._pending_responses = []
+        self._scrollback = deque(maxlen=10000)
 
     def write_process_input(self, data):
         """Capture responses (DSR, DA1, etc.) that need to be sent back to PTY"""
@@ -411,6 +434,21 @@ class ExtendedPyteScreen(pyte.Screen):
             row = min(self.cursor.y, self.lines - 1) + 1  # 1-based
             col = min(self.cursor.x, self.columns - 1) + 1  # 1-based
             self.write_process_input(f"\x1b[{row};{col}R")
+
+    def _save_scrollback_row(self, row):
+        """Save a row to scrollback before it scrolls off"""
+        line = ''
+        for x in range(self.columns):
+            char = self.buffer[row][x]
+            line += char.data
+        self._scrollback.append(line)
+
+    def index(self):
+        """Override to capture scrollback before scrolling"""
+        top, bottom = self.margins or (0, self.lines - 1)
+        if self.cursor.y == bottom:
+            self._save_scrollback_row(top)
+        super().index()
 
     def draw(self, data):
         """Override to track last printed character for REP"""
@@ -436,7 +474,7 @@ class ExtendedPyteScreen(pyte.Screen):
         """CSI S - Scroll Up (SU) - scroll content up, new blank lines at bottom"""
         from collections import defaultdict
         for _ in range(count or 1):
-            # Shift all rows up by 1
+            self._save_scrollback_row(0)
             new_buffer = defaultdict(lambda: defaultdict(lambda: self.default_char))
             for row in range(self.lines - 1):
                 new_buffer[row] = self.buffer[row + 1]
@@ -505,6 +543,26 @@ class PyteScreen:
         # Collect any pending responses (DSR, DA1, etc.)
         self.pending_responses.extend(self._screen._pending_responses)
         self._screen._pending_responses.clear()
+
+    def scrollback_lines(self):
+        """Return number of lines in scrollback history"""
+        return len(self._screen._scrollback)
+
+    def render_scrollback(self, lines):
+        """Render N lines of scrollback history as plain text"""
+        sb = self._screen._scrollback
+        n = min(lines, len(sb))
+        if n == 0:
+            return ''
+        start = len(sb) - n
+        result = []
+        for i in range(start, len(sb)):
+            result.append(sb[i].rstrip())
+        return '\n'.join(result) + '\n'
+
+    def render_scrollback_ansi(self, lines):
+        """Render scrollback with ANSI - scrollback is plain text only"""
+        return self.render_scrollback(lines)
 
     def render(self):
         """Render the screen as a string"""
@@ -906,7 +964,8 @@ def handle_client(client_sock, state):
 
         # Handle request
         if req_type == 'OUTPUT':
-            response = handle_output(request.get('format', 'ascii'), state)
+            response = handle_output(request.get('format', 'ascii'), state,
+                                     request.get('scrollback', 0))
         elif req_type == 'INPUT':
             response = handle_input(request.get('data'), state)
         elif req_type == 'STATUS':
@@ -941,17 +1000,27 @@ def handle_client(client_sock, state):
             pass
 
 
-def handle_output(fmt, state):
+def handle_output(fmt, state, scrollback_n=0):
     """Handle OUTPUT request"""
     if fmt == 'ansi':
         screen_text = state.screen.render_ansi()
     else:
         screen_text = state.screen.render()
 
+    scrollback_text = ''
+    if scrollback_n and scrollback_n > 0:
+        if fmt == 'ansi':
+            scrollback_text = state.screen.render_scrollback_ansi(scrollback_n)
+        else:
+            scrollback_text = state.screen.render_scrollback(scrollback_n)
+
+    combined = scrollback_text + screen_text if scrollback_text else screen_text
+    scrollback_available = state.screen.scrollback_lines()
+
     return {
         'status': 'ok',
         'data': {
-            'screen': screen_text,
+            'screen': combined,
             'cursor': {
                 'row': state.screen.cursor_row,
                 'col': state.screen.cursor_col
@@ -959,7 +1028,8 @@ def handle_output(fmt, state):
             'size': {
                 'rows': state.screen.rows,
                 'cols': state.screen.cols
-            }
+            },
+            'scrollback_available': scrollback_available
         }
     }
 
@@ -1254,7 +1324,8 @@ def cmd_output(args):
     """Output command - get screen content"""
     # Default is color (ansi), --no-color disables it
     fmt = 'ascii' if args.no_color else 'ansi'
-    request = {'type': 'OUTPUT', 'format': fmt}
+    scrollback = getattr(args, 'scrollback', 0)
+    request = {'type': 'OUTPUT', 'format': fmt, 'scrollback': scrollback}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
@@ -1272,19 +1343,33 @@ def cmd_output(args):
         print(f"Cursor: row {cursor_row + 1}, col {cursor_col + 1}")
     
     screen = data['screen']
-    
+
+    # When scrollback is prepended, cursor row must be offset
+    if scrollback > 0:
+        total_lines = len(screen.split('\n'))
+        screen_rows = data.get('size', {}).get('rows', 24)
+        scrollback_line_count = max(0, total_lines - screen_rows)
+    else:
+        scrollback_line_count = 0
+
     # Apply inverse video if requested
     if cursor_mode in ('inverse', 'both'):
         cursor = data.get('cursor', {})
         cursor_row = cursor.get('row', 0)
         cursor_col = cursor.get('col', 0)
-        screen = apply_cursor_inverse(screen, cursor_row, cursor_col)
+        screen = apply_cursor_inverse(screen, cursor_row + scrollback_line_count, cursor_col)
 
     if args.number:
         lines = screen.split('\n')
-        width = len(str(len(lines)))
-        for i, line in enumerate(lines, 1):
-            print(f"{i:0{width}d}\t{line}")
+        screen_lines = len(lines) - scrollback_line_count
+        width = len(str(max(scrollback_line_count, screen_lines)))
+        for i, line in enumerate(lines):
+            if i < scrollback_line_count:
+                n = scrollback_line_count - i
+                print(f"-{n:0{width}d}\t{line}")
+            else:
+                n = i - scrollback_line_count + 1
+                print(f" {n:0{width}d}\t{line}")
     else:
         print(screen)
 
@@ -1547,6 +1632,8 @@ def main():
                                help='Number all output lines (zero-padded, 1-based)')
     output_parser.add_argument('--cursor', default='none', choices=['none', 'print', 'inverse', 'both'],
                                help='Cursor display mode (default: none)')
+    output_parser.add_argument('--scrollback', type=int, default=1000,
+                               help='Include N lines of scrollback history above the visible screen')
     output_parser.set_defaults(func=cmd_output)
 
     # Input command
