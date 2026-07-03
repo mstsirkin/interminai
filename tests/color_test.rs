@@ -104,6 +104,18 @@ impl DaemonHandle {
     }
 }
 
+fn assert_ansi_color(line: &str, text: &str, color_code: &str) {
+    let direct = format!("\x1b[{color_code}m{text}");
+    let reset_prefixed = format!("\x1b[0;{color_code}m{text}");
+    assert!(
+        line.contains(&direct) || line.contains(&reset_prefixed),
+        "Expected {:?} to contain {:?} or {:?}",
+        line,
+        direct,
+        reset_prefixed
+    );
+}
+
 /// Test that --no-color returns plain text without ANSI codes
 #[test]
 fn test_no_color_strips_codes() {
@@ -293,6 +305,35 @@ fn test_default_is_color() {
     assert!(default_output.contains("Hello"), "Default output should contain 'Hello'");
     // Both should have similar content
     assert!(color_output.contains("\x1b["), "--color output should contain ANSI codes");
+
+    daemon.stop();
+}
+
+#[test]
+fn test_color_carries_across_lines_without_numbering() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_printf(
+        &env.socket(),
+        "80x10",
+        "\\033[31mred1\nred2\n\\033[32mgreen3\ngreen4\\033[0m",
+    );
+
+    let output = daemon.get_output_color();
+    let lines: Vec<&str> = output.lines().collect();
+
+    let red1_line = lines.iter().find(|line| line.contains("red1")).expect("Missing red1 line");
+    let red2_line = lines.iter().find(|line| line.contains("red2")).expect("Missing red2 line");
+    let green3_line = lines.iter().find(|line| line.contains("green3")).expect("Missing green3 line");
+    let green4_line = lines.iter().find(|line| line.contains("green4")).expect("Missing green4 line");
+
+    assert_ansi_color(red1_line, "red1", "31");
+    assert_ansi_color(red2_line, "red2", "31");
+    assert_ansi_color(green3_line, "green3", "32");
+    assert_ansi_color(green4_line, "green4", "32");
 
     daemon.stop();
 }

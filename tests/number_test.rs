@@ -37,6 +37,10 @@ struct DaemonHandle {
 
 impl DaemonHandle {
     fn spawn_with_socket(socket: &str, command_args: &[&str]) -> Self {
+        Self::spawn_with_socket_and_size(socket, "80x24", command_args)
+    }
+
+    fn spawn_with_socket_and_size(socket: &str, size: &str, command_args: &[&str]) -> Self {
         use std::process::Stdio;
         use std::io::BufRead;
 
@@ -45,6 +49,8 @@ impl DaemonHandle {
             .args(emulator_args())
             .arg("--socket")
             .arg(socket)
+            .arg("--size")
+            .arg(size)
             .arg("--no-daemon")
             .arg("--");
 
@@ -80,6 +86,18 @@ impl DaemonHandle {
         thread::sleep(Duration::from_millis(200));
         let _ = self.child.wait();
     }
+}
+
+fn assert_ansi_color(line: &str, text: &str, color_code: &str) {
+    let direct = format!("\x1b[{color_code}m{text}");
+    let reset_prefixed = format!("\x1b[0;{color_code}m{text}");
+    assert!(
+        line.contains(&direct) || line.contains(&reset_prefixed),
+        "Expected {:?} to contain {:?} or {:?}",
+        line,
+        direct,
+        reset_prefixed
+    );
 }
 
 #[test]
@@ -283,6 +301,56 @@ fn test_number_flag_preserves_color() {
 
     // Should have numbered lines with color codes preserved
     assert!(stdout.contains("\x1b["), "Color codes should be preserved with -n flag");
+
+    daemon.stop();
+}
+
+#[test]
+fn test_number_flag_keeps_prefix_uncolored_when_color_carries_across_lines() {
+    if common::emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_with_socket_and_size(
+        &env.socket(),
+        "80x10",
+        &[
+            "bash",
+            "-c",
+            "printf '\\033[31mred1\nred2\n\\033[32mgreen3\ngreen4\\033[0m'; sleep 10",
+        ],
+    );
+
+    thread::sleep(Duration::from_millis(500));
+
+    let output = Command::new(interminai_bin())
+        .arg("output")
+        .arg("--socket")
+        .arg(&env.socket())
+        .arg("-n")
+        .timeout(Duration::from_secs(2))
+        .output()
+        .expect("Failed to get output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    let red1_line = lines.iter().find(|line| line.contains("red1")).expect("Missing red1 line");
+    let red2_line = lines.iter().find(|line| line.contains("red2")).expect("Missing red2 line");
+    let green3_line = lines.iter().find(|line| line.contains("green3")).expect("Missing green3 line");
+    let green4_line = lines.iter().find(|line| line.contains("green4")).expect("Missing green4 line");
+
+    for (line, prefix, text, color_code) in [
+        (*red1_line, " 01\t", "red1", "31"),
+        (*red2_line, " 02\t", "red2", "31"),
+        (*green3_line, " 03\t", "green3", "32"),
+        (*green4_line, " 04\t", "green4", "32"),
+    ] {
+        assert!(line.starts_with(prefix), "Expected {:?} to start with {:?}", line, prefix);
+        assert!(!line[..prefix.len()].contains("\x1b["), "Number prefix should be plain: {:?}", line);
+        assert_ansi_color(&line[prefix.len()..], text, color_code);
+    }
 
     daemon.stop();
 }
