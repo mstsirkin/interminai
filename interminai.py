@@ -669,9 +669,6 @@ class PyteScreen:
         if bg_code:
             codes.append(bg_code)
 
-        if len(codes) == 1 and codes[0] == '0':
-            return ''  # No attributes, skip
-
         return f'\x1b[{";".join(codes)}m'
 
     def _color_to_ansi(self, color, is_foreground):
