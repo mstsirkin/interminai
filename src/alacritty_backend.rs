@@ -135,11 +135,6 @@ fn build_sgr_sequence(fg: &Color, bg: &Color, flags: Flags) -> String {
         codes.push(bg_code);
     }
 
-    if codes.len() == 1 && codes[0] == "0" {
-        // Just reset, no other attributes - return empty to avoid unnecessary codes
-        return String::new();
-    }
-
     format!("\x1b[{}m", codes.join(";"))
 }
 
