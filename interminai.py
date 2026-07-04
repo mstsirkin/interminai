@@ -1106,12 +1106,11 @@ def handle_output(request_data, state):
 
 def handle_input(data, state):
     """Handle INPUT request"""
-    if not data or 'data' not in data:
-        return {'status': 'error', 'error': 'Missing data field'}
+    if not isinstance(data, str):
+        return {'status': 'error', 'error': "Missing 'data' field"}
 
-    input_str = data['data']
     try:
-        os.write(state.master_fd, input_str.encode('utf-8'))
+        os.write(state.master_fd, data.encode('utf-8'))
         return {'status': 'ok', 'data': {'message': 'Input sent'}}
     except Exception as e:
         return {'status': 'error', 'error': str(e)}
@@ -1497,7 +1496,7 @@ def cmd_input(args):
     else:
         data = sys.stdin.read()
 
-    request = {'type': 'INPUT', 'data': {'data': data}}
+    request = {'type': 'INPUT', 'data': data}
     response = send_request(args.socket, request)
 
     if response['status'] == 'error':
