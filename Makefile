@@ -7,6 +7,7 @@
 .PHONY: install-gemini install-gemini-rust install-gemini-python
 .PHONY: install-mcp install-mcp-rust install-mcp-python install-mcp-cursor install-mcp-gemini
 .PHONY: install-tool-rust install-tool-python
+.PHONY: install-npx
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
 
@@ -15,6 +16,7 @@
 help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
+	@echo "  make install-npx          - Install Python skill via npx to all compatible agents"
 	@echo "  make install-all          - Install skills to all locations (skill, claude, codex, cursor, gemini)"
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
@@ -53,6 +55,9 @@ build:
 	@test "$(NAME)" "!=" "Rust" || \
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
+
+install-npx: ## Install Python skill via npx to all compatible agents (project-level + agent symlinks)
+	npx skills add $(PWD)
 
 install-all: install-skill install-claude install-codex install-cursor install-gemini ## Install skills to all locations
 
