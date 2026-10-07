@@ -191,46 +191,6 @@ fn named_color_to_ansi(color: NamedColor, is_foreground: bool) -> Option<String>
     code.map(|c| c.to_string())
 }
 
-/// Trim trailing spaces from a line while preserving ANSI escape codes at the end
-fn trim_end_preserve_ansi(s: &str) -> &str {
-    // Find last non-space, non-escape-sequence character
-    let bytes = s.as_bytes();
-    let mut end = bytes.len();
-
-    // Walk backwards, skipping trailing spaces
-    while end > 0 {
-        if bytes[end - 1] == b' ' {
-            end -= 1;
-        } else if end >= 4 && bytes[end - 1] == b'm' {
-            // Might be end of ANSI sequence, look for ESC[
-            let mut seq_start = end - 2;
-            while seq_start > 0 && bytes[seq_start] != 0x1b {
-                seq_start -= 1;
-            }
-            if seq_start > 0 && bytes[seq_start] == 0x1b && bytes[seq_start + 1] == b'[' {
-                // This is an ANSI sequence at the end, keep it and continue trimming before it
-                end = seq_start;
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    // Now find actual content end (include any ANSI codes after last content)
-    let content_end = end;
-    end = s.len();
-
-    // Keep ANSI reset codes at the very end
-    if content_end == 0 {
-        return "";
-    }
-
-    // Return up to and including any trailing ANSI codes
-    &s[..end]
-}
-
 impl TerminalEmulator for AlacrittyTerminal {
     fn process_bytes(&mut self, bytes: &[u8]) {
         self.parser.advance(&mut self.term, bytes);
@@ -303,14 +263,11 @@ impl TerminalEmulator for AlacrittyTerminal {
                 line_content.push(cell.c);
             }
 
-            // Reset at end of line if we changed any attributes
-            if current_fg != default_fg || current_bg != default_bg || current_flags != empty_flags {
-                line_content.push_str("\x1b[0m");
+            let needs_reset = current_fg != default_fg || current_bg != default_bg || current_flags != empty_flags;
+            result.push_str(line_content.trim_end());
+            if needs_reset {
+                result.push_str("\x1b[0m");
             }
-
-            // Trim trailing spaces but preserve ANSI codes
-            let trimmed = trim_end_preserve_ansi(&line_content);
-            result.push_str(trimmed);
             result.push('\n');
         }
 
@@ -425,12 +382,11 @@ impl TerminalEmulator for AlacrittyTerminal {
                 line_content.push(cell.c);
             }
 
-            if current_fg != default_fg || current_bg != default_bg || current_flags != empty_flags {
-                line_content.push_str("\x1b[0m");
+            let needs_reset = current_fg != default_fg || current_bg != default_bg || current_flags != empty_flags;
+            result.push_str(line_content.trim_end());
+            if needs_reset {
+                result.push_str("\x1b[0m");
             }
-
-            let trimmed = trim_end_preserve_ansi(&line_content);
-            result.push_str(trimmed);
             result.push('\n');
         }
 
