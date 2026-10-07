@@ -104,6 +104,27 @@ impl DaemonHandle {
     }
 }
 
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&ch) = chars.peek() {
+                    chars.next();
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 fn assert_ansi_color(line: &str, text: &str, color_code: &str) {
     let direct = format!("\x1b[{color_code}m{text}");
     let reset_prefixed = format!("\x1b[0;{color_code}m{text}");
@@ -334,6 +355,35 @@ fn test_color_carries_across_lines_without_numbering() {
     assert_ansi_color(red2_line, "red2", "31");
     assert_ansi_color(green3_line, "green3", "32");
     assert_ansi_color(green4_line, "green4", "32");
+
+    daemon.stop();
+}
+
+/// Test that color output trims trailing spaces the same as no-color output
+#[test]
+fn test_color_no_trailing_spaces() {
+    if emulator() == "custom" {
+        return;
+    }
+
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_printf(
+        &env.socket(),
+        "80x10",
+        "\\033[31mHello\\033[0m",
+    );
+
+    let color_output = daemon.get_output_color();
+    let no_color_output = daemon.get_output_no_color();
+
+    for (i, (color_line, plain_line)) in color_output.lines().zip(no_color_output.lines()).enumerate() {
+        let stripped = strip_ansi(color_line);
+        assert_eq!(
+            stripped, plain_line,
+            "Line {} differs after stripping ANSI codes:\n  color (stripped): {:?}\n  no-color:         {:?}",
+            i + 1, stripped, plain_line
+        );
+    }
 
     daemon.stop();
 }
