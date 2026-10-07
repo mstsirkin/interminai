@@ -599,9 +599,10 @@ class PyteScreen:
                 current_bg = char.bg
                 current_attrs = attrs
             line += char.data
+        line = line.rstrip()
         if current_fg != 'default' or current_bg != 'default' or any(current_attrs):
             line += '\x1b[0m'
-        return line.rstrip()
+        return line
 
     def render(self):
         """Render the screen as a string"""
@@ -632,11 +633,11 @@ class PyteScreen:
 
                 line += char.data
 
-            # Reset at end of line if we changed attributes
+            line = line.rstrip()
             if current_fg != 'default' or current_bg != 'default' or any(current_attrs):
                 line += '\x1b[0m'
 
-            lines.append(line.rstrip())
+            lines.append(line)
 
         return '\n'.join(lines)
 
