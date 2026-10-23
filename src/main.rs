@@ -27,6 +27,7 @@ use nix::sys::termios::{tcgetattr, LocalFlags, InputFlags, OutputFlags, SpecialC
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::fs;
 use std::path::Path;
+use unicode_width::UnicodeWidthChar;
 
 use terminal::TerminalEmulator;
 
@@ -1153,6 +1154,46 @@ fn apply_cursor_inverse(screen: &str, cursor_row: usize, cursor_col: usize) -> S
     result
 }
 
+/// Copy the prompt row, omitting unused cells but retaining any hint after the
+/// input cursor. Cursor columns are terminal cells, not bytes or characters.
+fn password_prompt_line(line: &str, cursor_col: usize, columns: usize) -> String {
+    let line = line.trim_end_matches(' ');
+    let width: usize = line.chars().map(|c| c.width().unwrap_or(0)).sum();
+    let mut result = line.to_string();
+    if width <= cursor_col {
+        // Plain-text renderers may already have removed spaces before the cursor.
+        result.push_str(&" ".repeat(cursor_col - width));
+    } else {
+        // A hint remains to the right. Account for wrapping on the user's terminal
+        // when returning to the input position, including delayed wrap at its edge.
+        let columns = columns.max(1);
+        let position = |mut cells: usize| {
+            let (mut row, mut col) = (0, 0);
+            for ch in line.chars() {
+                if cells == 0 {
+                    break;
+                }
+                let width = ch.width().unwrap_or(0);
+                if col + width > columns {
+                    row += 1;
+                    col = 0;
+                }
+                let advance = width.min(cells);
+                col += advance;
+                cells -= advance;
+            }
+            (row, col.min(columns - 1))
+        };
+        let (end_row, _) = position(width);
+        let (cursor_row, cursor_col) = position(cursor_col);
+        if end_row > cursor_row {
+            result.push_str(&format!("\x1b[{}A", end_row - cursor_row));
+        }
+        result.push_str(&format!("\x1b[{}G", cursor_col + 1));
+    }
+    result
+}
+
 fn send_request(socket_path: &str, request: serde_json::Value) -> Result<Response> {
     let mut stream = UnixStream::connect(socket_path)
         .context("Failed to connect to daemon socket")?;
@@ -1302,22 +1343,27 @@ fn main() -> Result<()> {
                         .and_then(|c| c.get("row"))
                         .and_then(|r| r.as_u64())
                         .unwrap_or(0) as usize;
+                    let cursor_col = data.get("cursor")
+                        .and_then(|c| c.get("col"))
+                        .and_then(|c| c.as_u64())
+                        .unwrap_or(0) as usize;
+                    let columns = rustix::termios::tcgetwinsize(std::io::stderr())
+                        .map(|size| size.ws_col as usize)
+                        .unwrap_or(80);
                     if let Some(screen) = data.get("screen").and_then(|s| s.as_str()) {
                         let lines: Vec<&str> = screen.lines().collect();
                         // Show previous line if it exists and is non-empty
                         if cursor_row > 0 {
                             if let Some(prev_line) = lines.get(cursor_row - 1) {
                                 if !prev_line.trim().is_empty() {
-                                    eprintln!("{}", prev_line);
+                                    eprintln!("{}", prev_line.trim_end_matches(' '));
                                 }
                             }
                         }
                         // Show cursor line
                         if let Some(prompt_line) = lines.get(cursor_row) {
-                            if !prompt_line.trim().is_empty() {
-                                eprint!("{} ", prompt_line);
-                                std::io::stderr().flush().ok();
-                            }
+                            eprint!("{}", password_prompt_line(prompt_line, cursor_col, columns));
+                            std::io::stderr().flush().ok();
                         }
                     }
                 }

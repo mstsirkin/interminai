@@ -17,6 +17,7 @@ fork = "0.6.0"
 rustix = { version = "1.1.2", features = ["termios", "net", "process", "event"] }
 alacritty_terminal = "0.25"
 rpassword = "7.3"
+unicode-width = "0.2"
 
 [dev-dependencies]
 tempfile = "3.12"
