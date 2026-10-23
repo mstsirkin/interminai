@@ -1461,6 +1461,41 @@ def cmd_output(args):
         print(screen)
 
 
+def password_prompt_line(line, cursor_col, columns):
+    """Copy a prompt and any right-hand hint, returning to the input cursor."""
+    from wcwidth import wcwidth
+
+    line = line.rstrip(' ')
+    widths = [max(0, wcwidth(char)) for char in line]
+    width = sum(widths)
+    if width <= cursor_col:
+        # Plain-text renderers may already have removed spaces before the cursor.
+        return line + ' ' * (cursor_col - width)
+
+    # The hint can wrap on a narrower local terminal. Track terminal cells,
+    # including wide characters and delayed wrap at the right edge.
+    columns = max(1, columns)
+
+    def position(cells):
+        row = col = 0
+        for width in widths:
+            if cells == 0:
+                break
+            if col + width > columns:
+                row += 1
+                col = 0
+            advance = min(width, cells)
+            col += advance
+            cells -= advance
+        return row, min(col, columns - 1)
+
+    end_row, _ = position(width)
+    cursor_row, cursor_col = position(cursor_col)
+    if end_row > cursor_row:
+        line += f'\x1b[{end_row - cursor_row}A'
+    return line + f'\x1b[{cursor_col + 1}G'
+
+
 def cmd_input(args):
     """Input command - send input to the program"""
     # Priority: --password, --text, stdin
@@ -1477,13 +1512,18 @@ def cmd_input(args):
             data = output_response.get('data', {})
             screen = data.get('screen', '')
             cursor_row = data.get('cursor', {}).get('row', 0)
+            cursor_col = data.get('cursor', {}).get('col', 0)
+            try:
+                columns = os.get_terminal_size(sys.stderr.fileno()).columns
+            except OSError:
+                columns = 80
             lines = screen.split('\n')
             # Show previous line if it exists and is non-empty
             if cursor_row > 0 and cursor_row - 1 < len(lines) and lines[cursor_row - 1].strip():
-                print(lines[cursor_row - 1], file=sys.stderr)
+                print(lines[cursor_row - 1].rstrip(' '), file=sys.stderr)
             # Show cursor line
-            if cursor_row < len(lines) and lines[cursor_row].strip():
-                print(f"{lines[cursor_row]} ", end='', file=sys.stderr)
+            if cursor_row < len(lines):
+                print(password_prompt_line(lines[cursor_row], cursor_col, columns), end='', file=sys.stderr)
                 sys.stderr.flush()
 
         try:
