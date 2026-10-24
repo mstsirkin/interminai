@@ -122,6 +122,28 @@ The Python implementation (`interminai.py`) is ready to use without compilation.
 ./interminai.py --help
 ```
 
+### MCP Server
+
+The MCP wrapper also needs the Python MCP SDK. It uses the 1.x `FastMCP` API;
+MCP SDK 2.x changed that API and cannot run this server unchanged. Install the
+compatible dependency in a virtual environment and configure the client to use
+that environment's interpreter:
+
+```bash
+python3 -m venv .venv-mcp
+.venv-mcp/bin/python -m pip install -r requirements-mcp.txt
+make install-mcp
+
+# Register the server with Gemini CLI using that Python environment
+gemini mcp add interminai "$PWD/.venv-mcp/bin/python" \
+  "$HOME/.mcp/skills/interminai/mcp_server.py" --scope user
+```
+
+Installing the SDK in a virtual environment does not make it available to the
+server's `#!/usr/bin/env python3` interpreter. Other MCP clients should likewise
+use the virtual environment's Python as the command and the server script as
+its argument.
+
 ## Quick Start
 
 ```bash
