@@ -47,7 +47,7 @@ Selectively stage files using git's interactive add mode.
 #!/bin/bash
 SOCK=`mktemp -d /tmp/interminai-XXXXXX`/sock
 
-# Start bash (git add -i exits quickly, so wrap in bash to keep session alive)
+# Start a reusable shell (starting git add -i directly also works)
 GIT_EDITOR=vim ./scripts/interminai start --socket "$SOCK" -- bash
 sleep 0.5
 
@@ -101,6 +101,49 @@ rm "$SOCK"; rmdir `dirname "$SOCK"`
 
 echo "=== Files staged successfully! ==="
 ```
+
+## Git patch selection (git add -p)
+
+Start in the repository with modified tracked files. These commands assume
+the default line input mode, made explicit with `-c`:
+
+```bash
+GIT_EDITOR=vim ./scripts/interminai start -- \
+  git -c interactive.singleKey=false add -p -- path/to/file
+# Use the socket path printed by start in each command below.
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+
+# Accept the displayed hunk, including Enter.
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'y\r'
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+
+# If another hunk is offered, skip it or use s/e when offered to split/edit.
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'n\r'
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+
+# If still at a hunk prompt, keep accepted hunks and skip the remainder.
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'q\r'
+./scripts/interminai wait --socket /tmp/interminai-xxx/socket --quiet
+
+# Verify after selection finishes; the index may not change after each y.
+git diff --cached -- path/to/file
+git diff -- path/to/file
+./scripts/interminai stop --socket /tmp/interminai-xxx/socket
+```
+
+With `git -c interactive.singleKey=true add -p`, send bare `y`, `n`, `s`, `e`,
+or `q` at hunk prompts. Read each new prompt before sending more input; editor
+commands and text queries have their own input modes. Input does not need the
+React/Ink delay described elsewhere in this skill.
+
+If `e` opens Vim, remove unwanted `+` lines and turn unwanted `-` lines into
+context lines (leading space), preserving patch order. Save with `:wq\r`,
+then inspect Git's response. To abandon the edit, delete the patch contents
+and save with `:%d\r:wq\r`. An editor failure or invalid patch can produce
+an "Edit again" prompt; answer it before continuing hunk selection.
+
+For a new file, first run `git add -N -- path/to/new-file`. The file then
+appears in `git add -p`, and `e` can stage only some of its added lines.
 
 ## Example 3: Git Interactive Rebase
 

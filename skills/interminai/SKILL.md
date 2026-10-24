@@ -66,7 +66,7 @@ Just read the socket path from the `start` output and use it directly - no need 
 3. **Check output after each input** - don't blindly chain commands
 4. **Add delays**: `sleep 0.2` after input for processing
 5. **Set GIT_EDITOR=vim** for git rebase -i, git commit, etc.
-6. **If screen garbled**: Send `\f` (Ctrl+L) to redraw
+6. **If screen garbled**: Use the application's redraw command. Vim supports `\f` (Ctrl+L); Git patch prompts do not. See "Git patch selection" below.
 7. **NEVER poll with grep/sleep loops**: Use `wait` to block until something changes. Use `wait --line N --not-contains PATTERN` to wait for a busy indicator to disappear. See "Waiting for CLI LLM Idle State" below.
 8. **Output is limited**: No need to pipe to head/tail - output always ever gives you one screen. 25 lines by default.
 9. **Use scrollback if output scrolled off**: Start with `output --from -100 --to 0` to check the last 100 scrollback lines. Need more? `output --from -200 --to -100`, and so on. Keep iterating back in chunks until you find what you need.
@@ -236,17 +236,48 @@ Use `\n` only when you specifically want to add a newline to multiline input
 ./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'line1\nline2\nline3\r'
 ```
 
-## Menu prompts needing Enter
+## Git patch selection (`git add -p`)
 
-For git add -i/-p, the menu shown is not interactive, an action does not
-take effect until you press enter. For example:
+**Match the input to Git's mode.** By default, hunk decisions require Enter:
+send `--text 'y\r'`, `--text 'n\r'`, etc. A bare `y` is echoed but remains
+buffered until Enter; that is not a PTY delivery failure. With
+`interactive.singleKey=true`, send just `--text 'y'` (no Enter). To make the
+mode predictable without changing repository configuration, start with:
 
-- Stage this hunk [y,n,q,a,d,K,j,J,g,/,e,?]?
+```bash
+GIT_EDITOR=vim ./scripts/interminai start -- \
+  git -c interactive.singleKey=false add -p -- path/to/file
+# Read the displayed socket path, then inspect the first hunk:
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+./scripts/interminai input --socket /tmp/interminai-xxx/socket --text 'y\r'
+./scripts/interminai output --socket /tmp/interminai-xxx/socket
+```
 
-Actually expects `y` followed by Enter and will not take effect until Enter is sent.
+**Verify progress using the current prompt.** An accepted `y` advances to the
+next undecided hunk, but Git applies the selected hunks after finishing the
+file's selection. An external `git diff --cached` can still be empty while
+Git is asking about later hunks in that file. Finish the decisions, or send
+`q\r` to keep accepted hunks and skip the rest; then wait for Git to exit and
+inspect `git diff --cached` and `git diff`. In single-key mode use `q`.
+`stop` is cleanup, not a substitute for finishing Git's selection.
 
-If you observe a tool is waiting for Enter once, it is safe to assume
-it will be waiting for it next time, too.
+**Inspect before sending another decision.** `s` splits a hunk when offered;
+`e` opens it in `GIT_EDITOR`. After the editor exits, inspect Git's next prompt:
+an invalid edit can ask whether to edit again. To abandon a Vim hunk edit,
+delete its contents and save (`:%d\r:wq\r`); `:q!` leaves the original patch
+intact and can therefore stage it. `git add -i` menus and file selection still
+require Enter, even when its patch prompts use single-key mode.
+
+**Recover the display using Git's commands.** Ctrl+L is not a Git redraw key.
+Use `p\r` to print the current hunk when `p` is offered (`p` in single-key
+mode), or `?\r` for help. For older Git versions, navigate away and back using
+the offered `j`/`k` commands, or inspect scrollback with
+`output --from -100 --to 0`. Git need not redraw on terminal resize.
+
+**New files need intent-to-add.** `git add -p` skips untracked files. Run
+`git add -N -- path/to/new-file` first, then use patch selection (`e` can select
+individual added lines). Verify the resulting staged and unstaged diffs.
+See the [complete patch example](examples.md#git-patch-selection-git-add--p).
 
 ## Modern TUI Apps (Ink/React-based)
 
