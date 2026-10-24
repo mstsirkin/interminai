@@ -272,7 +272,10 @@ require Enter, even when its patch prompts use single-key mode.
 Use `p\r` to print the current hunk when `p` is offered (`p` in single-key
 mode), or `?\r` for help. For older Git versions, navigate away and back using
 the offered `j`/`k` commands, or inspect scrollback with
-`output --from -100 --to 0`. Git need not redraw on terminal resize.
+`output --from -100 --to 0`. Git need not redraw on terminal resize. Older
+Python interminai versions cleared the display on resize; this is a screen
+buffer bug, not evidence that input was lost. Prefer setting `--size` at
+startup on those versions.
 
 **New files need intent-to-add.** `git add -p` skips untracked files. Run
 `git add -N -- path/to/new-file` first, then use patch selection (`e` can select

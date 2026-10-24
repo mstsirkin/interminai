@@ -91,6 +91,18 @@ class Screen:
         self.scrollback_cap = scrollback_capacity
         self.scrollback = deque(maxlen=scrollback_capacity)
 
+    def resize(self, rows, cols):
+        """Resize in place, retaining visible cells and terminal state."""
+        self.cells = [
+            self.cells[row][:cols] + [' '] * max(0, cols - self.cols)
+            if row < self.rows else [' '] * cols
+            for row in range(rows)
+        ]
+        self.rows, self.cols = rows, cols
+        self.cursor_row = min(self.cursor_row, rows - 1)
+        self.cursor_col = min(self.cursor_col, cols - 1)
+        self.pending_wrap = False
+
     def scroll_up(self):
         """Scroll screen up by one line"""
         row = self.cells.pop(0)
@@ -530,6 +542,18 @@ class PyteScreen:
         self.cursor_col = 0
         # Activity flag: set to True when output is received, cleared by status or wait
         self.activity = False
+
+    def resize(self, rows, cols):
+        """Keep the pyte screen, stream, colors, and scrollback across resizes."""
+        # pyte clips rows from the top when shrinking; retain those in history.
+        clipped = max(0, self.rows - rows)
+        for row in range(clipped):
+            self._screen._save_scrollback_row(row)
+        cursor_row = max(0, self._screen.cursor.y - clipped)
+        self._screen.resize(lines=rows, columns=cols)
+        self.rows, self.cols = rows, cols
+        self._screen.cursor.y = self.cursor_row = min(cursor_row, rows - 1)
+        self._screen.cursor.x = self.cursor_col = min(self._screen.cursor.x, cols - 1)
 
     def process_output(self, data):
         """Process output data through pyte"""
@@ -1250,8 +1274,9 @@ def handle_resize(data, state):
     try:
         set_window_size(state.master_fd, rows, cols)
 
-        # Resize screen buffer
-        state.screen = Screen(rows, cols)
+        # Git and other line-oriented apps need not redraw after SIGWINCH.
+        # Retain the selected emulator and its display/history instead of clearing it.
+        state.screen.resize(rows, cols)
 
         return {'status': 'ok', 'data': {'message': f'Resized to {cols}x{rows}'}}
     except Exception as e:

@@ -2,7 +2,7 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{emulator_args, interminai_client_bin, interminai_server_bin};
+use common::{emulator, emulator_args, interminai_client_bin, interminai_server_bin};
 use std::fs;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
@@ -392,4 +392,47 @@ fn patch_from_persistent_shell() {
     repo.assert_index(&[(3, "FIRST change")]);
     session.input("exit\\r");
     session.finish();
+}
+
+#[test]
+fn resize_preserves_git_prompt_colors_and_scrollback() {
+    let repo = Repo::new();
+    repo.three_hunks();
+    let session = repo.patch(false);
+    session.prompt("(1/3) Stage this hunk");
+    session.input("n\\r");
+    session.prompt("(2/3) Stage this hunk");
+    session.input("n\\r");
+    session.prompt("(3/3) Stage this hunk");
+    let history = session.call("output", &["--no-color", "--from", "-100", "--to", "0"]);
+    assert!(history.contains("FIRST change"));
+    // Git does not redraw on SIGWINCH; the emulator must retain the existing display.
+    for size in ["100x30", "80x24"] {
+        session.call("resize", &["--size", size]);
+        let screen = session.screen();
+        assert!(
+            screen.contains("(3/3) Stage this hunk"),
+            "Lost prompt after {size}: {screen}"
+        );
+        assert!(
+            screen.contains("THIRD change"),
+            "Lost hunk after {size}: {screen}"
+        );
+        // A growing terminal may pull history back onto the screen.
+        assert!(
+            session
+                .call("output", &["--no-color", "--from", "-100"])
+                .contains("FIRST change"),
+            "Lost history after {size}"
+        );
+        if emulator() == "xterm" {
+            assert!(
+                session.call("output", &[]).contains("\u{1b}["),
+                "Lost ANSI colors after resize"
+            );
+        }
+    }
+    session.input("y\\r");
+    session.finish();
+    repo.assert_index(&[(37, "THIRD change")]);
 }
