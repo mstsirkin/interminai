@@ -51,6 +51,10 @@ Works with Claude Code, Cursor, Codex, Gemini CLI, GitHub Copilot, and
 other skills-compatible agents. Tested on Linux but should work on any
 Unix-like OS (Linux, macOS, or Windows Subsystem for Linux).
 
+Gemini CLI 0.65.0 requires interactive approval for shell commands that reuse
+generated socket paths. For unattended runs, use the MCP integration instead;
+see [Gemini CLI command approval](skills/interminai/SKILL.md#gemini-cli-command-approval).
+
 ### Manual Install
 
 interminai is available in two implementations with identical functionality:

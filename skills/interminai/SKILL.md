@@ -45,6 +45,21 @@ A terminal proxy for interactive CLI applications. See [examples.md](examples.md
 
 Just read the socket path from the `start` output and use it directly - no need to parse into variables.
 
+## Gemini CLI command approval
+
+In Gemini CLI 0.65.0, the skill is discoverable, but Gemini's shell safety check
+marks the socket path printed by `start` as untrusted tool output. Reusing that
+path in `output`, `input`, or `stop` requires confirmation. In interactive Gemini,
+review the command and use **Allow once**; subsequent commands may prompt again.
+In headless mode (`gemini -p`), the same check returns **Tool execution denied by
+policy**, even with `--approval-mode yolo`, before interminai runs.
+
+This is a Gemini approval limitation, not a lost terminal session or a PTY input
+failure. Reading command usage/help can also mark `--socket` itself as untrusted,
+so even `echo --socket` may then need confirmation. Do not encode or rewrite a
+denied command to evade the check. Use interactive approval, or the configured
+interminai MCP tools for an authorized unattended workflow.
+
 ## Essential Commands
 
 - `start [--scrollback N] -- COMMAND` - Start application (prints socket path on stdout, scrollback buffer default 10000)
