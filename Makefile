@@ -12,6 +12,7 @@
 .PHONY: demo demo-gdb
 
 .DEFAULT_GOAL := help
+NAME ?= Rust
 
 help: ## Show this help message
 	@echo "Available targets:"

@@ -1527,6 +1527,12 @@ def cmd_input(args):
     if args.password:
         import getpass
 
+        status = send_request(args.socket, {'type': 'STATUS'})
+        if status.get('data', {}).get('running') is False:
+            print(f"Error: Session process has exited (code {status['data'].get('exit_code')})",
+                  file=sys.stderr)
+            sys.exit(1)
+
         # Fetch current screen to show the password prompt from the application
         output_request = {'type': 'OUTPUT', 'format': 'ascii'}
         output_response = send_request(args.socket, output_request)
@@ -1564,6 +1570,12 @@ def cmd_input(args):
 
     request = {'type': 'INPUT', 'data': data}
     response = send_request(args.socket, request)
+    if response['status'] == 'error' and response.get('error') in (
+        'Missing data field', 'string indices must be integers',
+        "string indices must be integers, not 'str'",
+    ):
+        # Older Python daemons reject flat input before writing to the PTY.
+        response = send_request(args.socket, {'type': 'INPUT', 'data': {'data': data}})
 
     if response['status'] == 'error':
         print(f"Error: {response.get('error', 'Unknown error')}", file=sys.stderr)

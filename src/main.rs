@@ -1329,6 +1329,13 @@ fn main() -> Result<()> {
         Commands::Input { socket, text, password } => {
             // Priority: --password, --text, stdin
             let input = if password {
+                let status = send_request(&socket, serde_json::json!({"type": "STATUS"}))?;
+                if let Some(data) = status.data.as_ref() {
+                    if data.get("running").and_then(|running| running.as_bool()) == Some(false) {
+                        anyhow::bail!("Session process has exited (code {})", data["exit_code"]);
+                    }
+                }
+
                 // Fetch current screen to show the password prompt from the application
                 let output_request = serde_json::json!({
                     "type": "OUTPUT",
@@ -1385,7 +1392,18 @@ fn main() -> Result<()> {
                 "data": input
             });
 
-            let response = send_request(&socket, request)?;
+            let mut response = send_request(&socket, request)?;
+            if response.status == "error" && matches!(
+                response.error.as_deref(),
+                Some("Missing data field" | "string indices must be integers"
+                    | "string indices must be integers, not 'str'")
+            ) {
+                // Older Python daemons reject flat input before writing to the PTY.
+                response = send_request(&socket, serde_json::json!({
+                    "type": "INPUT",
+                    "data": {"data": input}
+                }))?;
+            }
 
             if response.status == "error" {
                 eprintln!("Error: {}", response.error.unwrap_or_default());

@@ -213,6 +213,27 @@ fn test_password_requires_terminal() {
             "Error should mention terminal or password: {}", stderr);
 }
 
+#[test]
+fn test_password_reports_exited_session_before_prompting() {
+    let env = TestEnv::new();
+    let daemon = DaemonHandle::spawn_with_socket(&env.socket(), &["sh", "-c", "exit 7"]);
+
+    Command::new(interminai_client_bin())
+        .args(["wait", "--socket", &daemon.socket_path, "--quiet"])
+        .assert()
+        .success();
+
+    let output = Command::new(interminai_client_bin())
+        .args(["input", "--socket", &daemon.socket_path, "--password"])
+        .output()
+        .expect("Failed to run input");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Session process has exited (code 7)"), "{stderr}");
+    assert!(!stderr.contains("Type your secret or password"), "{stderr}");
+}
+
 // Test --password using interminai to provide PTY for the input command
 #[test]
 fn test_password_with_interminai_pty() {
