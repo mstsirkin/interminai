@@ -60,7 +60,12 @@ build:
 install-npx: ## Install Python skill via npx to all compatible agents (project-level + agent symlinks)
 	npx skills add $(PWD)
 
-install-all: install-skill install-claude install-codex install-cursor install-gemini ## Install skills to all locations
+install-all: ## Install skills to all locations
+	@$(MAKE) --no-print-directory install-skill
+	@$(MAKE) --no-print-directory install-claude
+	@$(MAKE) --no-print-directory install-codex
+	@$(MAKE) --no-print-directory install-cursor
+	@$(MAKE) --no-print-directory install-gemini
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
@@ -101,7 +106,9 @@ install-codex-rust: install-tool-rust
 install-codex-python: TOOL = codex
 install-codex-python: install-tool-python
 
-install-cursor: install-cursor-rust install-mcp-cursor ## Install for cursor-agent (MCP + skill)
+install-cursor: ## Install for cursor-agent (MCP + skill)
+	@$(MAKE) --no-print-directory install-cursor-rust
+	@$(MAKE) --no-print-directory install-mcp-cursor
 
 install-cursor-rust: TOOL = cursor
 install-cursor-rust: install-tool-rust
