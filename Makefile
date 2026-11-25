@@ -14,6 +14,9 @@
 .DEFAULT_GOAL := help
 NAME ?= Rust
 
+# How many superseded installs to keep per destination
+BACKUPS ?= 3
+
 help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
@@ -186,6 +189,12 @@ install-atomic: build
 		mkdir -p $(DST) && \
 		mv --exchange "$$TMPDIR/interminai" $(DST) && \
 		echo "Old version backed up at $$TMPDIR/interminai"
+	@cd $(DST)-backup && \
+		stale=$$(ls -1dt */ 2>/dev/null | tail -n +$$(($(BACKUPS) + 1))) && \
+		if test -n "$$stale"; then \
+			echo "$$stale" | xargs rm -rf && \
+			echo "Pruned $$(echo "$$stale" | wc -l) older backups"; \
+		fi
 	@echo "Installed $(NAME) version to $(DST)/interminai"
 
 test: test-rust test-python test-skill
