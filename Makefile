@@ -6,7 +6,7 @@
 .PHONY: install-cursor install-cursor-rust install-cursor-python
 .PHONY: install-gemini install-gemini-rust install-gemini-python
 .PHONY: install-mcp install-mcp-rust install-mcp-python install-mcp-cursor install-mcp-gemini
-.PHONY: install-tool-rust install-tool-python
+.PHONY: install-tool-rust install-tool-python install-tool-impl
 .PHONY: install-npx
 .PHONY: test test-rust test-python test-xterm test-custom test-skill
 .PHONY: demo demo-gdb
@@ -22,18 +22,18 @@ help: ## Show this help message
 	@echo "  make install-skill        - Install Rust implementation (default)"
 	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
 	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
-	@echo "  make install-claude       - Install Rust skill to ~/.claude/skills/ for Claude Code (default)"
-	@echo "  make install-claude-rust  - Install Rust skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make install-claude-python - Install Python skill to ~/.claude/skills/ for Claude Code"
-	@echo "  make install-codex       - Install Rust skill to ~/.codex/skills/ for Codex (default)"
-	@echo "  make install-codex-rust  - Install Rust skill to ~/.codex/skills/ for Codex"
-	@echo "  make install-codex-python - Install Python skill to ~/.codex/skills/ for Codex"
+	@echo "  make install-claude       - Install Rust skill to every ~/.claude* profile (default)"
+	@echo "  make install-claude-rust  - Install Rust skill to every ~/.claude* profile"
+	@echo "  make install-claude-python - Install Python skill to every ~/.claude* profile"
+	@echo "  make install-codex       - Install Rust skill to every ~/.codex* profile (default)"
+	@echo "  make install-codex-rust  - Install Rust skill to every ~/.codex* profile"
+	@echo "  make install-codex-python - Install Python skill to every ~/.codex* profile"
 	@echo "  make install-cursor       - Install for cursor-agent (MCP server + skill, recommended)"
-	@echo "  make install-cursor-rust  - Install Rust skill only to ~/.cursor/skills/"
-	@echo "  make install-cursor-python - Install Python skill only to ~/.cursor/skills/"
-	@echo "  make install-gemini       - Install Rust skill to ~/.gemini/skills/ for Gemini CLI (default)"
-	@echo "  make install-gemini-rust  - Install Rust skill to ~/.gemini/skills/ for Gemini CLI"
-	@echo "  make install-gemini-python - Install Python skill to ~/.gemini/skills/ for Gemini CLI"
+	@echo "  make install-cursor-rust  - Install Rust skill only, to every ~/.cursor* profile"
+	@echo "  make install-cursor-python - Install Python skill only, to every ~/.cursor* profile"
+	@echo "  make install-gemini       - Install Rust skill to every ~/.gemini* profile (default)"
+	@echo "  make install-gemini-rust  - Install Rust skill to every ~/.gemini* profile"
+	@echo "  make install-gemini-python - Install Python skill to every ~/.gemini* profile"
 	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ (manual config)"
 	@echo "  make install-mcp-rust    - Install Rust MCP server"
 	@echo "  make install-mcp-python  - Install Python MCP server"
@@ -85,13 +85,25 @@ install-claude: install-claude-rust ## Install Rust skill to ~/.claude/skills/ f
 
 install-tool-rust: NAME = Rust
 install-tool-rust: SRC = target/release/interminai
-install-tool-rust: DST = ~/.${TOOL}/skills
-install-tool-rust: install-atomic
+install-tool-rust: install-tool-impl
 
 install-tool-python: NAME = Python
 install-tool-python: SRC = interminai.py
-install-tool-python: DST = ~/.${TOOL}/skills
-install-tool-python: install-atomic
+install-tool-python: install-tool-impl
+
+# A tool can have several profile directories side by side, such as ~/.claude,
+# ~/.claude-rh and ~/.claude-mst. Install to each of them. test -d skips both an
+# unmatched glob and files like ~/.claude.json.
+install-tool-impl: build
+	@test -n "$(TOOL)"
+	@found=; \
+	for dir in $(HOME)/.$(TOOL)*; do \
+		test -d "$$dir" || continue; \
+		found=1; \
+		$(MAKE) --no-print-directory install-atomic \
+			NAME="$(NAME)" SRC="$(SRC)" DST="$$dir/skills" || exit 1; \
+	done; \
+	test -n "$$found" || echo "No $(HOME)/.$(TOOL)* directory, skipped"
 
 
 install-claude-rust: TOOL = claude
