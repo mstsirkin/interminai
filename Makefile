@@ -1,5 +1,5 @@
 .PHONY: help build clean
-.PHONY: install-all
+.PHONY: install install-all install-agents install-agents-rust install-agents-python deduplicate migrate-to-agents uninstall-legacy
 .PHONY: install-skill install-skill-rust install-skill-python install-skill-impl install-atomic
 .PHONY: install-claude install-claude-rust install-claude-python
 .PHONY: install-codex install-codex-rust install-codex-python
@@ -20,21 +20,25 @@ BACKUPS ?= 3
 help: ## Show this help message
 	@echo "Available targets:"
 	@echo ""
+	@echo "  make install              - Install Rust skill to ~/.agents/skills (recommended)"
+	@echo "  make install-agents       - Install Rust skill to ~/.agents/skills, shared by every agent"
+	@echo "  make install-agents-rust  - Install Rust skill to ~/.agents/skills"
+	@echo "  make install-agents-python - Install Python skill to ~/.agents/skills"
 	@echo "  make install-npx          - Install Python skill via npx to all compatible agents"
-	@echo "  make install-all          - Install skills to all locations (skill, claude, codex, cursor, gemini)"
-	@echo "  make install-skill        - Install Rust implementation (default)"
-	@echo "  make install-skill-rust   - Install Rust implementation to skills/interminai/scripts/"
-	@echo "  make install-skill-python - Install Python implementation to skills/interminai/scripts/"
-	@echo "  make install-claude       - Install Rust skill to every ~/.claude* profile (default)"
+	@echo "  make install-all          - Install to ~/.agents/skills + local repo copy"
+	@echo "  make install-skill        - Install Rust implementation to agent/skills in repo (default)"
+	@echo "  make install-skill-rust   - Install Rust implementation to agent/skills in repo"
+	@echo "  make install-skill-python - Install Python implementation to agent/skills in repo"
+	@echo "  make install-claude       - Install Rust skill to every ~/.claude* profile (legacy, not needed with ~/.agents/skills)"
 	@echo "  make install-claude-rust  - Install Rust skill to every ~/.claude* profile"
 	@echo "  make install-claude-python - Install Python skill to every ~/.claude* profile"
-	@echo "  make install-codex       - Install Rust skill to every ~/.codex* profile (default)"
+	@echo "  make install-codex       - Install Rust skill to every ~/.codex* profile (legacy)"
 	@echo "  make install-codex-rust  - Install Rust skill to every ~/.codex* profile"
 	@echo "  make install-codex-python - Install Python skill to every ~/.codex* profile"
-	@echo "  make install-cursor       - Install for cursor-agent (MCP server + skill, recommended)"
+	@echo "  make install-cursor       - Install for cursor-agent (MCP server + legacy skill)"
 	@echo "  make install-cursor-rust  - Install Rust skill only, to every ~/.cursor* profile"
 	@echo "  make install-cursor-python - Install Python skill only, to every ~/.cursor* profile"
-	@echo "  make install-gemini       - Install Rust skill to every ~/.gemini* profile (default)"
+	@echo "  make install-gemini       - Install Rust skill to every ~/.gemini* profile (legacy)"
 	@echo "  make install-gemini-rust  - Install Rust skill to every ~/.gemini* profile"
 	@echo "  make install-gemini-python - Install Python skill to every ~/.gemini* profile"
 	@echo "  make install-mcp         - Install MCP server to ~/.mcp/skills/ (manual config)"
@@ -60,15 +64,43 @@ build:
 		(echo "Building Rust release binary..." ; \
 		 cargo build --release)
 
+install: install-agents ## Install to ~/.agents/skills (recommended, works for Gemini, Claude, Codex, Cursor)
+
+install-all: ## Install to ~/.agents/skills + local repo copy
+	@$(MAKE) --no-print-directory install-agents
+	@$(MAKE) --no-print-directory install-skill
+
+install-agents: install-agents-rust ## Install to ~/.agents/skills (Rust)
+
+install-agents-rust: NAME = Rust
+install-agents-rust: SRC = target/release/interminai
+install-agents-rust: DST = $(HOME)/.agents/skills
+install-agents-rust: install-atomic
+
+install-agents-python: NAME = Python
+install-agents-python: SRC = interminai.py
+install-agents-python: DST = $(HOME)/.agents/skills
+install-agents-python: install-atomic
+
+deduplicate: migrate-to-agents ## Alias for migrate-to-agents
+migrate-to-agents: ## Archive legacy per-tool installs (codex/cursor/gemini) to backup if universal exists
+	@if test -d $(HOME)/.agents/skills/interminai; then \
+		for dst in $(HOME)/.codex*/skills $(HOME)/.cursor*/skills $(HOME)/.gemini*/skills; do \
+			if test -d "$$dst/interminai"; then \
+				mkdir -p "$$dst-backup"; \
+				TMPDIR=$$(mktemp -d "$$dst-backup/XXXXXX") && \
+				mv "$$dst/interminai" "$$TMPDIR/" && \
+				echo "Archived $$dst/interminai to $$TMPDIR/interminai (universal already in ~/.agents/skills)"; \
+			fi; \
+		done; \
+	else \
+		echo "No ~/.agents/skills/interminai - run 'make install' or 'make install-agents' first"; \
+	fi
+
+uninstall-legacy: migrate-to-agents ## Alias for migrate-to-agents
+
 install-npx: ## Install Python skill via npx to all compatible agents (project-level + agent symlinks)
 	npx skills add $(PWD)
-
-install-all: ## Install skills to all locations
-	@$(MAKE) --no-print-directory install-skill
-	@$(MAKE) --no-print-directory install-claude
-	@$(MAKE) --no-print-directory install-codex
-	@$(MAKE) --no-print-directory install-cursor
-	@$(MAKE) --no-print-directory install-gemini
 
 install-skill: install-skill-rust ## Install Rust implementation (default)
 
